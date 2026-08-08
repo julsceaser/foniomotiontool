@@ -1,0 +1,45 @@
+{
+  "color": {
+    "base": {
+      "blue-main": { "$value": "#585DFE", "$type": "color", "$description": "Fonio Blue MAIN" },
+      "blue-app": { "$value": "#585DF5", "$type": "color", "$description": "App-Lila (shadcn brand)" },
+      "cyan": { "$value": "#58E8FE", "$type": "color" },
+      "green": { "$value": "#58FE85", "$type": "color" },
+      "white": { "$value": "#FFFFFF", "$type": "color" },
+      "dark": { "$value": "#0F0F16", "$type": "color" }
+    },
+    "orb": {
+      "orb-10": { "$value": "#DCFAFC", "$type": "color", "$description": "Orb dominant, hellster Ton" },
+      "orb-20": { "$value": "#DBECFB", "$type": "color" },
+      "orb-30": { "$value": "#BDF5F3", "$type": "color" },
+      "orb-40": { "$value": "#B1E4F7", "$type": "color" },
+      "orb-50": { "$value": "#B2D4F9", "$type": "color" },
+      "orb-60": { "$value": "#98D1F9", "$type": "color" },
+      "orb-70": { "$value": "#94C3F8", "$type": "color" },
+      "orb-80": { "$value": "#85B2F5", "$type": "color", "$description": "Orb dominant, dunkelster Ton" },
+      "accent-mint": { "$value": "#A6EEC9", "$type": "color", "$description": "Mint-Akzent, sparsam einsetzen" },
+      "accent-aqua": { "$value": "#9FF2E6", "$type": "color" },
+      "accent-sky": { "$value": "#70B6EE", "$type": "color" },
+      "accent-periwinkle": { "$value": "#6B98E8", "$type": "color", "$description": "Periwinkle-Koerper unten rechts" }
+    },
+    "neutral": {
+      "foreground": { "$value": "#09090B", "$type": "color", "$description": "Text" },
+      "muted-fg": { "$value": "#71717A", "$type": "color", "$description": "Muted Text" },
+      "muted": { "$value": "#F4F4F5", "$type": "color" },
+      "border": { "$value": "#E4E4E7", "$type": "color" },
+      "graybg": { "$value": "#F7F8FC", "$type": "color" },
+      "lavender": { "$value": "#EEEFFE", "$type": "color" }
+    }
+  },
+  "radius": {
+    "sm": { "$value": "10px", "$type": "dimension" },
+    "md": { "$value": "12px", "$type": "dimension" },
+    "lg": { "$value": "16px", "$type": "dimension" },
+    "xl": { "$value": "20px", "$type": "dimension" }
+  },
+  "font": {
+    "family": {
+      "geist": { "$value": "Geist, system-ui, sans-serif", "$type": "fontFamily" }
+    }
+  }
+}
