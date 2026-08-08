@@ -1,0 +1,36 @@
+{
+  "name": "fonio-video",
+  "version": "1.0.0",
+  "description": "Fonio 60s Erklärvideo (Remotion, 8-Sprachen-Pipeline, aktuell de/en)",
+  "repository": {},
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@remotion/bundler": "^4.0.507",
+    "@remotion/cli": "4.0.507",
+    "@remotion/google-fonts": "^4.0.507",
+    "@remotion/renderer": "^4.0.507",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.507"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.507",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.19.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio",
+    "studio": "remotion studio",
+    "build": "remotion bundle",
+    "render:all": "node scripts/render-all.mjs",
+    "upgrade": "remotion upgrade",
+    "lint": "eslint src && tsc"
+  },
+  "sideEffects": [
+    "*.css"
+  ]
+}
