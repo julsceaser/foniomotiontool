@@ -28,6 +28,8 @@ export default function StatesPage() {
   const [rendered, setRendered] = useState<StateParams>(() => loadStates().idle.p)
 
   const current = useRef<StateParams>(deepCopy(rendered))
+  const rotAngle = useRef(0)
+  const [rot, setRot] = useState(0)
   const statesRef = useRef(states)
   statesRef.current = states
   const stateRef = useRef(stateKey)
@@ -105,6 +107,8 @@ export default function StatesPage() {
       c.grainMixer = lerp(c.grainMixer, t.grainMixer, k)
       c.soften = lerp(c.soften, t.soften, k)
       c.offsetX = lerp(c.offsetX, t.offsetX, k)
+      c.rotationSpeed = lerp(c.rotationSpeed, t.rotationSpeed, k)
+      rotAngle.current = (rotAngle.current + c.rotationSpeed * (1 / 60)) % 360
       const breath = stateRef.current === 'idle' ? Math.sin(now / 2200) * 0.015 : 0
       const audioBoost = (stateRef.current === 'listening' || stateRef.current === 'speaking') ? lvl * 0.22 : 0
       c.scale = lerp(c.scale, t.scale + breath + audioBoost, 0.12)
@@ -113,6 +117,7 @@ export default function StatesPage() {
         lastRender = now
         setRendered({ ...c, colors: [...c.colors] })
         setLevel(lvl)
+        setRot(rotAngle.current)
       }
       raf = requestAnimationFrame(tick)
     }
@@ -125,7 +130,7 @@ export default function StatesPage() {
       <div className="orb-stage">
         <div className="orb" style={{ transform: `translateX(${rendered.offsetX * 260}px) scale(${rendered.scale})` }}>
           <MeshGradient className="orb-shader" width="100%" height="100%"
-            colors={rendered.colors} speed={rendered.speed} distortion={rendered.distortion}
+            colors={rendered.colors} speed={rendered.speed} rotation={rot} distortion={rendered.distortion}
             swirl={rendered.swirl} grainMixer={rendered.grainMixer} grainOverlay={0} />
           <div className="orb-overlay" style={{ opacity: rendered.soften }} />
           <div className="orb-highlight" />
