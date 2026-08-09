@@ -324,8 +324,12 @@ export default function OrbPage() {
           </div>
         )}
 
-        <div className="control has-tip" data-tip="Setzt alle Farb-Stops auf ein vordefiniertes Set.">
-          <span className="control-label"><span>Farb-Preset</span></span>
+        <div className="control has-tip" data-tip="Setzt alle Farb-Stops auf ein vordefiniertes Set — wirkt NUR auf das aktuell gewählte Bearbeiten-Ziel. Achtung bei Zuständen: überschreibt deren eigene Farb-Gewichtung; ‚Standard' holt sie zurück.">
+          <span className="control-label"><span>Farb-Preset</span>
+            {!isPg && (
+              <button className="mini-btn" onClick={() => { patchState(deepCopy(DEFAULT_STATES[target].p)) }}>↺ Standard</button>
+            )}
+          </span>
           <div className="seg">
             {Object.keys(PRESETS).map((p) => (
               <button key={p} className="seg-btn"
