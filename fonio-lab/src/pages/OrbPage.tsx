@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { MeshGradient, GrainGradient, Metaballs, Warp, SmokeRing } from '@paper-design/shaders-react'
+import { DEFAULT_STATES, loadStates, saveStateParams, deepCopy, type StateParams } from '../orbStates'
 
 /**
- * Fonio orb lab — 5 shader modes, extended ranges, deterministic frame
- * scrubbing. All settings persist in localStorage.
+ * Orb EDITOR — the dropdown at the top selects what is being edited:
+ * the free playground or one of the 8 Lena states. Changes are drafts
+ * until "Speichern". The states page is the preview counterpart.
  */
 
 const PRESETS: Record<string, string[]> = {
@@ -19,17 +21,14 @@ const PRESETS: Record<string, string[]> = {
 }
 
 const MODES = [
-  ['mesh', 'Mesh'],
-  ['grain', 'Grain'],
-  ['metaballs', 'Metaballs'],
-  ['warp', 'Warp'],
-  ['smokering', 'Smoke Ring'],
+  ['mesh', 'Mesh'], ['grain', 'Grain'], ['metaballs', 'Metaballs'],
+  ['warp', 'Warp'], ['smokering', 'Smoke Ring'],
 ] as const
 type Mode = (typeof MODES)[number][0]
 const GRAIN_SHAPES = ['blob', 'wave', 'ripple', 'dots', 'corners', 'truchet'] as const
 const WARP_SHAPES = ['checks', 'stripes', 'edge'] as const
 
-type Settings = {
+type Playground = {
   mode: Mode
   colors: string[]
   speed: number
@@ -61,7 +60,7 @@ type Settings = {
   srInnerShape: number
 }
 
-const DEFAULTS: Settings = {
+const PG_DEFAULTS: Playground = {
   mode: 'mesh',
   colors: PRESETS['Grundfarben (4)'],
   speed: 0.18, frame: 0, scale: 1, rotation: 0, offsetX: 0, offsetY: 0, soften: 0.36,
@@ -72,23 +71,18 @@ const DEFAULTS: Settings = {
   srNoiseScale: 1.4, srThickness: 0.55, srRadius: 0.5, srInnerShape: 0.6,
 }
 
-const LS_KEY = 'fonio-orb-tuning-v2'
-const load = (): Settings => {
+const PG_LS_KEY = 'fonio-orb-tuning-v2'
+const loadPg = (): Playground => {
   try {
-    const raw = localStorage.getItem(LS_KEY)
-    if (raw) return { ...DEFAULTS, ...JSON.parse(raw) }
+    const raw = localStorage.getItem(PG_LS_KEY)
+    if (raw) return { ...PG_DEFAULTS, ...JSON.parse(raw) }
   } catch { /* ignore */ }
-  return { ...DEFAULTS, colors: [...DEFAULTS.colors] }
+  return deepCopy(PG_DEFAULTS)
 }
 
 function Slider(props: {
-  label: string
-  hint: string
-  value: number
-  min: number
-  max: number
-  step?: number
-  onChange: (v: number) => void
+  label: string; hint: string; value: number; min: number; max: number
+  step?: number; onChange: (v: number) => void
 }) {
   const { label, hint, value, min, max, step = 0.01, onChange } = props
   return (
@@ -104,84 +98,159 @@ function Slider(props: {
 }
 
 export default function OrbPage() {
-  const [s, setS] = useState<Settings>(load)
-  const patch = (p: Partial<Settings>) => setS((old) => ({ ...old, ...p }))
-  useEffect(() => { localStorage.setItem(LS_KEY, JSON.stringify(s)) }, [s])
+  const [target, setTarget] = useState<string>('playground')
+  const [pg, setPg] = useState<Playground>(loadPg)
+  const [stateDraft, setStateDraft] = useState<StateParams>(() => loadStates().idle.p)
+  const [dirty, setDirty] = useState(false)
+  const [savedMsg, setSavedMsg] = useState('')
 
-  const setColor = (i: number, v: string) => patch({ colors: s.colors.map((x, j) => (j === i ? v : x)) })
-  const removeColor = (i: number) => patch({ colors: s.colors.filter((_, j) => j !== i) })
-  const addColor = () => { if (s.colors.length < 10) patch({ colors: [...s.colors, '#FFFFFF'] }) }
-  const reset = () => { localStorage.removeItem(LS_KEY); setS({ ...DEFAULTS, colors: [...DEFAULTS.colors] }) }
+  const isPg = target === 'playground'
 
-  const nonWhite = s.colors.filter((c) => c.toUpperCase() !== '#FFFFFF')
-  const common = {
-    className: 'orb-shader', width: '100%' as const, height: '100%' as const,
-    speed: s.speed, frame: s.frame, scale: s.scale, rotation: s.rotation,
-    offsetX: s.offsetX, offsetY: s.offsetY,
+  const switchTarget = (t: string) => {
+    setTarget(t)
+    setDirty(false)
+    setSavedMsg('')
+    if (t === 'playground') setPg(loadPg())
+    else setStateDraft(deepCopy(loadStates()[t].p))
   }
+
+  const patchPg = (p: Partial<Playground>) => { setPg((o) => ({ ...o, ...p })); setDirty(true) }
+  const patchState = (p: Partial<StateParams>) => { setStateDraft((o) => ({ ...o, ...p })); setDirty(true) }
+
+  const save = () => {
+    if (isPg) localStorage.setItem(PG_LS_KEY, JSON.stringify(pg))
+    else saveStateParams(target, stateDraft)
+    setDirty(false)
+    setSavedMsg('Gespeichert ✓')
+    setTimeout(() => setSavedMsg(''), 2000)
+  }
+
+  // warn about unsaved changes on tab close
+  useEffect(() => {
+    const h = (e: BeforeUnloadEvent) => { if (dirty) e.preventDefault() }
+    window.addEventListener('beforeunload', h)
+    return () => window.removeEventListener('beforeunload', h)
+  }, [dirty])
+
+  const colors = isPg ? pg.colors : stateDraft.colors
+  const setColor = (i: number, v: string) => {
+    const next = colors.map((x, j) => (j === i ? v : x))
+    if (isPg) patchPg({ colors: next }); else patchState({ colors: next })
+  }
+  const removeColor = (i: number) => {
+    const next = colors.filter((_, j) => j !== i)
+    if (isPg) patchPg({ colors: next }); else patchState({ colors: next })
+  }
+  const addColor = () => {
+    if (colors.length >= 10) return
+    const next = [...colors, '#FFFFFF']
+    if (isPg) patchPg({ colors: next }); else patchState({ colors: next })
+  }
+
+  const nonWhite = colors.filter((c) => c.toUpperCase() !== '#FFFFFF')
+  const soften = isPg ? pg.soften : stateDraft.soften
 
   return (
     <main className="page">
       <div className="orb-stage">
-        <div className="orb">
-          {s.mode === 'mesh' && (
-            <MeshGradient {...common} colors={s.colors} distortion={s.distortion}
-              swirl={s.swirl} grainMixer={s.grainMixer} grainOverlay={s.grainOverlay} />
+        <div className="orb" style={isPg ? undefined : { transform: `translateX(${stateDraft.offsetX * 260}px) scale(${stateDraft.scale})` }}>
+          {isPg ? (
+            <>
+              {pg.mode === 'mesh' && (
+                <MeshGradient className="orb-shader" width="100%" height="100%"
+                  colors={pg.colors} speed={pg.speed} frame={pg.frame} scale={pg.scale}
+                  rotation={pg.rotation} offsetX={pg.offsetX} offsetY={pg.offsetY}
+                  distortion={pg.distortion} swirl={pg.swirl}
+                  grainMixer={pg.grainMixer} grainOverlay={pg.grainOverlay} />
+              )}
+              {pg.mode === 'grain' && (
+                <GrainGradient className="orb-shader" width="100%" height="100%"
+                  colorBack="#FFFFFF" colors={nonWhite.slice(0, 7)}
+                  speed={pg.speed} frame={pg.frame} scale={pg.scale} rotation={pg.rotation}
+                  offsetX={pg.offsetX} offsetY={pg.offsetY}
+                  softness={pg.softness} intensity={pg.intensity} noise={pg.noise} shape={pg.shape} />
+              )}
+              {pg.mode === 'metaballs' && (
+                <Metaballs className="orb-shader" width="100%" height="100%"
+                  colorBack="#FFFFFF" colors={nonWhite.slice(0, 8)}
+                  speed={pg.speed} frame={pg.frame} scale={pg.scale} rotation={pg.rotation}
+                  offsetX={pg.offsetX} offsetY={pg.offsetY}
+                  count={pg.mbCount} size={pg.mbSize} />
+              )}
+              {pg.mode === 'warp' && (
+                <Warp className="orb-shader" width="100%" height="100%"
+                  colors={pg.colors.slice(0, 10)} speed={pg.speed} frame={pg.frame}
+                  scale={pg.scale} rotation={pg.rotation} offsetX={pg.offsetX} offsetY={pg.offsetY}
+                  proportion={pg.wProportion} softness={pg.wSoftness} distortion={pg.wDistortion}
+                  swirl={pg.wSwirl} swirlIterations={pg.wSwirlIterations} shape={pg.wShape} />
+              )}
+              {pg.mode === 'smokering' && (
+                <SmokeRing className="orb-shader" width="100%" height="100%"
+                  colorBack="#FFFFFF" colors={nonWhite.slice(0, 8)}
+                  speed={pg.speed} frame={pg.frame} scale={pg.scale} rotation={pg.rotation}
+                  offsetX={pg.offsetX} offsetY={pg.offsetY}
+                  noiseScale={pg.srNoiseScale} thickness={pg.srThickness}
+                  radius={pg.srRadius} innerShape={pg.srInnerShape} />
+              )}
+            </>
+          ) : (
+            <MeshGradient className="orb-shader" width="100%" height="100%"
+              colors={stateDraft.colors} speed={stateDraft.speed}
+              distortion={stateDraft.distortion} swirl={stateDraft.swirl}
+              grainMixer={stateDraft.grainMixer} grainOverlay={0} />
           )}
-          {s.mode === 'grain' && (
-            <GrainGradient {...common} colorBack="#FFFFFF" colors={nonWhite.slice(0, 7)}
-              softness={s.softness} intensity={s.intensity} noise={s.noise} shape={s.shape} />
-          )}
-          {s.mode === 'metaballs' && (
-            <Metaballs {...common} colorBack="#FFFFFF" colors={nonWhite.slice(0, 8)}
-              count={s.mbCount} size={s.mbSize} />
-          )}
-          {s.mode === 'warp' && (
-            <Warp {...common} colors={s.colors.slice(0, 10)} proportion={s.wProportion}
-              softness={s.wSoftness} distortion={s.wDistortion} swirl={s.wSwirl}
-              swirlIterations={s.wSwirlIterations} shape={s.wShape} />
-          )}
-          {s.mode === 'smokering' && (
-            <SmokeRing {...common} colorBack="#FFFFFF" colors={nonWhite.slice(0, 8)}
-              noiseScale={s.srNoiseScale} thickness={s.srThickness}
-              radius={s.srRadius} innerShape={s.srInnerShape} />
-          )}
-          <div className="orb-overlay" style={{ opacity: s.soften }} />
+          <div className="orb-overlay" style={{ opacity: soften }} />
           <div className="orb-highlight" />
         </div>
       </div>
 
       <aside className="controls">
-        <h1 className="page-title">Orb / Tuning</h1>
+        <h1 className="page-title">Orb / Editor</h1>
 
-        <div className="control has-tip" data-tip="5 Render-Verfahren: Mesh = weicher Verlauf (Original-Look) · Grain = körnig · Metaballs = verschmelzende Blobs · Warp = wabernde Muster (Wobble-Look) · Smoke Ring = leuchtender Rauchring.">
-          <span className="control-label"><span>Shader</span>
-            <button className="mini-btn" onClick={reset}>Zurücksetzen</button>
-          </span>
-          <div className="seg">
-            {MODES.map(([m, label]) => (
-              <button key={m} className={s.mode === m ? 'seg-btn active' : 'seg-btn'}
-                onClick={() => patch({ mode: m })}>{label}</button>
-            ))}
+        <div className="control has-tip" data-tip="Was gerade bearbeitet wird: Playground = freies Experimentieren mit allen Shadern. Zustände = die Presets, die die Zustände-Seite (Preview) nutzt.">
+          <span className="control-label"><span>Bearbeiten</span></span>
+          <div className="edit-bar">
+            <select className="edit-select" value={target} onChange={(e) => switchTarget(e.target.value)}>
+              <option value="playground">Playground (frei)</option>
+              {Object.keys(DEFAULT_STATES).map((k) => (
+                <option key={k} value={k}>Zustand: {DEFAULT_STATES[k].label}</option>
+              ))}
+            </select>
+            <button className={dirty ? 'save-btn dirty' : 'save-btn'} onClick={save}>
+              {savedMsg || (dirty ? '● Speichern' : 'Speichern')}
+            </button>
           </div>
         </div>
 
-        <div className="control has-tip" data-tip="Setzt alle Farb-Stops auf ein vordefiniertes Set. Danach einzeln anpassbar.">
+        {isPg && (
+          <div className="control has-tip" data-tip="5 Render-Verfahren: Mesh = weicher Verlauf (Original-Look) · Grain = körnig · Metaballs = verschmelzende Blobs · Warp = wabernde Muster · Smoke Ring = leuchtender Rauchring.">
+            <span className="control-label"><span>Shader</span></span>
+            <div className="seg">
+              {MODES.map(([m, label]) => (
+                <button key={m} className={pg.mode === m ? 'seg-btn active' : 'seg-btn'}
+                  onClick={() => patchPg({ mode: m })}>{label}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="control has-tip" data-tip="Setzt alle Farb-Stops auf ein vordefiniertes Set.">
           <span className="control-label"><span>Farb-Preset</span></span>
           <div className="seg">
             {Object.keys(PRESETS).map((p) => (
-              <button key={p} className="seg-btn" onClick={() => patch({ colors: [...PRESETS[p]] })}>{p}</button>
+              <button key={p} className="seg-btn"
+                onClick={() => (isPg ? patchPg({ colors: [...PRESETS[p]] }) : patchState({ colors: [...PRESETS[p]] }))}>{p}</button>
             ))}
           </div>
         </div>
 
-        <div className="control has-tip" data-tip="Die Farb-Stops (max. 10). Mehr Weiß = pastelliger. Bei Metaballs/Smoke Ring wird Weiß als Hintergrund genutzt und aus den Stops gefiltert.">
+        <div className="control has-tip" data-tip="Die Farb-Stops (max. 10). Mehr Weiß = pastelliger.">
           <span className="control-label">
-            <span>Farben ({s.colors.length}/10)</span>
+            <span>Farben ({colors.length}/10)</span>
             <button className="mini-btn" onClick={addColor}>+ Farbe</button>
           </span>
           <div className="swatch-row">
-            {s.colors.map((c, i) => (
+            {colors.map((c, i) => (
               <span key={i} className="swatch">
                 <input type="color" value={c} onChange={(e) => setColor(i, e.target.value)} />
                 <button className="swatch-x" onClick={() => removeColor(i)}>×</button>
@@ -190,75 +259,88 @@ export default function OrbPage() {
           </div>
         </div>
 
-        <Slider label="Speed" hint="Bewegungsgeschwindigkeit — jetzt bis 3× (stärker als vorher). 0 = eingefroren, dann wird der Frame-Scrubber aktiv." value={s.speed} min={0} max={3} onChange={(v) => patch({ speed: v })} />
-        {s.speed === 0 && (
-          <Slider label="Frame (Scrub)" hint="Bei Speed 0: spult die Animation deterministisch auf einen exakten Zeitpunkt — perfekt für reproduzierbare Standbilder/Exports." value={s.frame} min={0} max={20000} step={10} onChange={(v) => patch({ frame: v })} />
-        )}
-        <Slider label="Scale" hint="Zoom ins Muster — jetzt 0.1 bis 5 (extremer als vorher)." value={s.scale} min={0.1} max={5} onChange={(v) => patch({ scale: v })} />
-        <Slider label="Rotation" hint="Dreht das gesamte Muster in Grad." value={s.rotation} min={0} max={360} step={1} onChange={(v) => patch({ rotation: v })} />
-        <Slider label="Offset X" hint="Verschiebt das Muster horizontal — der sichtbare Ausschnitt wandert." value={s.offsetX} min={-1} max={1} onChange={(v) => patch({ offsetX: v })} />
-        <Slider label="Offset Y" hint="Verschiebt das Muster vertikal." value={s.offsetY} min={-1} max={1} onChange={(v) => patch({ offsetY: v })} />
-
-        {s.mode === 'mesh' && (
+        {isPg ? (
           <>
-            <Slider label="Distortion" hint="Verformung der Farbflächen — Bereich jetzt bis 1.5 (übersteuert = sehr waberig)." value={s.distortion} min={0} max={1.5} onChange={(v) => patch({ distortion: v })} />
-            <Slider label="Swirl" hint="Wirbel-Effekt — bis 1.5 übersteuert für extreme Spiralen." value={s.swirl} min={0} max={1.5} onChange={(v) => patch({ swirl: v })} />
-            <Slider label="Grain Mixer" hint="Körnung in den Farbübergängen." value={s.grainMixer} min={0} max={1} onChange={(v) => patch({ grainMixer: v })} />
-            <Slider label="Grain Overlay" hint="Körnung als Schicht über allem — Filmkorn." value={s.grainOverlay} min={0} max={1} onChange={(v) => patch({ grainOverlay: v })} />
+            <Slider label="Speed" hint="Bewegungsgeschwindigkeit — bis 3×. Bei 0 erscheint der Frame-Scrubber." value={pg.speed} min={0} max={3} onChange={(v) => patchPg({ speed: v })} />
+            {pg.speed === 0 && (
+              <Slider label="Frame (Scrub)" hint="Spult die Animation deterministisch auf einen exakten Zeitpunkt — reproduzierbare Standbilder." value={pg.frame} min={0} max={20000} step={10} onChange={(v) => patchPg({ frame: v })} />
+            )}
+            <Slider label="Scale" hint="Zoom ins Muster (0.1–5)." value={pg.scale} min={0.1} max={5} onChange={(v) => patchPg({ scale: v })} />
+            <Slider label="Rotation" hint="Dreht das Muster in Grad." value={pg.rotation} min={0} max={360} step={1} onChange={(v) => patchPg({ rotation: v })} />
+            <Slider label="Offset X" hint="Verschiebt das Muster horizontal." value={pg.offsetX} min={-1} max={1} onChange={(v) => patchPg({ offsetX: v })} />
+            <Slider label="Offset Y" hint="Verschiebt das Muster vertikal." value={pg.offsetY} min={-1} max={1} onChange={(v) => patchPg({ offsetY: v })} />
+            {pg.mode === 'mesh' && (
+              <>
+                <Slider label="Distortion" hint="Verformung der Farbflächen — bis 1.5 übersteuerbar." value={pg.distortion} min={0} max={1.5} onChange={(v) => patchPg({ distortion: v })} />
+                <Slider label="Swirl" hint="Wirbel — bis 1.5 übersteuerbar." value={pg.swirl} min={0} max={1.5} onChange={(v) => patchPg({ swirl: v })} />
+                <Slider label="Grain Mixer" hint="Körnung in den Farbübergängen." value={pg.grainMixer} min={0} max={1} onChange={(v) => patchPg({ grainMixer: v })} />
+                <Slider label="Grain Overlay" hint="Körnung als Schicht über allem — Filmkorn." value={pg.grainOverlay} min={0} max={1} onChange={(v) => patchPg({ grainOverlay: v })} />
+              </>
+            )}
+            {pg.mode === 'grain' && (
+              <>
+                <Slider label="Softness" hint="Wie weich die Farbzonen ineinander laufen." value={pg.softness} min={0} max={1} onChange={(v) => patchPg({ softness: v })} />
+                <Slider label="Intensity" hint="Wie kräftig die Körnung die Form modelliert." value={pg.intensity} min={0} max={1} onChange={(v) => patchPg({ intensity: v })} />
+                <Slider label="Noise" hint="Menge an Rauschen/Textur." value={pg.noise} min={0} max={1} onChange={(v) => patchPg({ noise: v })} />
+                <div className="control has-tip" data-tip="Grundform — blob kommt dem Orb am nächsten.">
+                  <span className="control-label"><span>Shape</span></span>
+                  <div className="seg">
+                    {GRAIN_SHAPES.map((sh) => (
+                      <button key={sh} className={pg.shape === sh ? 'seg-btn active' : 'seg-btn'} onClick={() => patchPg({ shape: sh })}>{sh}</button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+            {pg.mode === 'metaballs' && (
+              <>
+                <Slider label="Count" hint="Anzahl der Blobs." value={pg.mbCount} min={1} max={15} step={1} onChange={(v) => patchPg({ mbCount: v })} />
+                <Slider label="Size" hint="Blob-Größe — groß = verschmilzt zu einer Masse." value={pg.mbSize} min={0.1} max={1} onChange={(v) => patchPg({ mbSize: v })} />
+              </>
+            )}
+            {pg.mode === 'warp' && (
+              <>
+                <Slider label="Proportion" hint="Mischverhältnis der Farben." value={pg.wProportion} min={0} max={1} onChange={(v) => patchPg({ wProportion: v })} />
+                <Slider label="Softness" hint="Weichheit der Kanten." value={pg.wSoftness} min={0} max={1} onChange={(v) => patchPg({ wSoftness: v })} />
+                <Slider label="Distortion" hint="Grundverformung." value={pg.wDistortion} min={0} max={1} onChange={(v) => patchPg({ wDistortion: v })} />
+                <Slider label="Swirl" hint="Wirbelstärke." value={pg.wSwirl} min={0} max={1} onChange={(v) => patchPg({ wSwirl: v })} />
+                <Slider label="Swirl-Iterationen" hint="Faltungen des Wirbels — hoch = Wobble-Video-Look." value={pg.wSwirlIterations} min={0} max={20} step={1} onChange={(v) => patchPg({ wSwirlIterations: v })} />
+                <div className="control has-tip" data-tip="Ausgangsmuster — edge ist am organischsten.">
+                  <span className="control-label"><span>Muster</span></span>
+                  <div className="seg">
+                    {WARP_SHAPES.map((sh) => (
+                      <button key={sh} className={pg.wShape === sh ? 'seg-btn active' : 'seg-btn'} onClick={() => patchPg({ wShape: sh })}>{sh}</button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+            {pg.mode === 'smokering' && (
+              <>
+                <Slider label="Noise Scale" hint="Größe der Rauch-Verwirbelungen." value={pg.srNoiseScale} min={0} max={4} onChange={(v) => patchPg({ srNoiseScale: v })} />
+                <Slider label="Thickness" hint="Dicke des Rings." value={pg.srThickness} min={0} max={1} onChange={(v) => patchPg({ srThickness: v })} />
+                <Slider label="Radius" hint="Größe des Rings." value={pg.srRadius} min={0} max={1} onChange={(v) => patchPg({ srRadius: v })} />
+                <Slider label="Inner Shape" hint="Definition der Innenkante." value={pg.srInnerShape} min={0} max={4} onChange={(v) => patchPg({ srInnerShape: v })} />
+              </>
+            )}
+            <Slider label="Soften (weißes Overlay)" hint="Weiß über allem — der Pastell-Regler." value={pg.soften} min={0} max={0.8} onChange={(v) => patchPg({ soften: v })} />
+          </>
+        ) : (
+          <>
+            <Slider label="Speed" hint="Bewegungsgeschwindigkeit dieses Zustands." value={stateDraft.speed} min={0} max={1} onChange={(v) => patchState({ speed: v })} />
+            <Slider label="Distortion" hint="Verformung der Farbflächen." value={stateDraft.distortion} min={0} max={1} onChange={(v) => patchState({ distortion: v })} />
+            <Slider label="Swirl" hint="Wirbel — hoch = ‚Nachdenken'-Look." value={stateDraft.swirl} min={0} max={1} onChange={(v) => patchState({ swirl: v })} />
+            <Slider label="Grain" hint="Körnung — Gedankenrauschen." value={stateDraft.grainMixer} min={0} max={1} onChange={(v) => patchState({ grainMixer: v })} />
+            <Slider label="Scale" hint="Größe des Orbs in diesem Zustand." value={stateDraft.scale} min={0.3} max={1.5} onChange={(v) => patchState({ scale: v })} />
+            <Slider label="Soften (Weiß)" hint="Pastell-Regler." value={stateDraft.soften} min={0} max={0.8} onChange={(v) => patchState({ soften: v })} />
+            <Slider label="Versatz X" hint="Schiebt den Orb horizontal — z. B. für Durchstellen." value={stateDraft.offsetX} min={-1} max={1} onChange={(v) => patchState({ offsetX: v })} />
           </>
         )}
-        {s.mode === 'grain' && (
-          <>
-            <Slider label="Softness" hint="Wie weich die Farbzonen ineinander laufen." value={s.softness} min={0} max={1} onChange={(v) => patch({ softness: v })} />
-            <Slider label="Intensity" hint="Wie kräftig die Körnung die Form modelliert." value={s.intensity} min={0} max={1} onChange={(v) => patch({ intensity: v })} />
-            <Slider label="Noise" hint="Menge an Rauschen/Textur." value={s.noise} min={0} max={1} onChange={(v) => patch({ noise: v })} />
-            <div className="control has-tip" data-tip="Grundform des Grain-Verlaufs — blob kommt dem Orb am nächsten.">
-              <span className="control-label"><span>Shape</span></span>
-              <div className="seg">
-                {GRAIN_SHAPES.map((sh) => (
-                  <button key={sh} className={s.shape === sh ? 'seg-btn active' : 'seg-btn'} onClick={() => patch({ shape: sh })}>{sh}</button>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-        {s.mode === 'metaballs' && (
-          <>
-            <Slider label="Count" hint="Anzahl der Blobs, die umeinander kreisen und verschmelzen." value={s.mbCount} min={1} max={15} step={1} onChange={(v) => patch({ mbCount: v })} />
-            <Slider label="Size" hint="Größe der einzelnen Blobs — groß = sie verschmelzen zu einer Masse." value={s.mbSize} min={0.1} max={1} onChange={(v) => patch({ mbSize: v })} />
-          </>
-        )}
-        {s.mode === 'warp' && (
-          <>
-            <Slider label="Proportion" hint="Mischverhältnis der Farben im Muster." value={s.wProportion} min={0} max={1} onChange={(v) => patch({ wProportion: v })} />
-            <Slider label="Softness" hint="Weichheit der Kanten zwischen den Farbflächen." value={s.wSoftness} min={0} max={1} onChange={(v) => patch({ wSoftness: v })} />
-            <Slider label="Distortion" hint="Grundverformung des Musters." value={s.wDistortion} min={0} max={1} onChange={(v) => patch({ wDistortion: v })} />
-            <Slider label="Swirl" hint="Wirbelstärke." value={s.wSwirl} min={0} max={1} onChange={(v) => patch({ wSwirl: v })} />
-            <Slider label="Swirl-Iterationen" hint="Wie oft der Wirbel gefaltet wird — hoch = sehr komplexe Waber-Muster (Wobble-Video-Look)." value={s.wSwirlIterations} min={0} max={20} step={1} onChange={(v) => patch({ wSwirlIterations: v })} />
-            <div className="control has-tip" data-tip="Ausgangsmuster, das verwirbelt wird — edge ist am organischsten.">
-              <span className="control-label"><span>Muster</span></span>
-              <div className="seg">
-                {WARP_SHAPES.map((sh) => (
-                  <button key={sh} className={s.wShape === sh ? 'seg-btn active' : 'seg-btn'} onClick={() => patch({ wShape: sh })}>{sh}</button>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-        {s.mode === 'smokering' && (
-          <>
-            <Slider label="Noise Scale" hint="Größe der Rauch-Verwirbelungen im Ring." value={s.srNoiseScale} min={0} max={4} onChange={(v) => patch({ srNoiseScale: v })} />
-            <Slider label="Thickness" hint="Dicke des Rings." value={s.srThickness} min={0} max={1} onChange={(v) => patch({ srThickness: v })} />
-            <Slider label="Radius" hint="Größe des Rings im Bild." value={s.srRadius} min={0} max={1} onChange={(v) => patch({ srRadius: v })} />
-            <Slider label="Inner Shape" hint="Wie stark die Innenkante definiert ist — niedrig = offener Nebel, hoch = klarer Ring." value={s.srInnerShape} min={0} max={4} onChange={(v) => patch({ srInnerShape: v })} />
-          </>
-        )}
-
-        <Slider label="Soften (weißes Overlay)" hint="Weiß über allem — der Pastell-Regler. Hoch drehen, wenn es zu satt wirkt." value={s.soften} min={0} max={0.8} onChange={(v) => patch({ soften: v })} />
 
         <p className="control-hint">
-          Alle Einstellungen speichern sich automatisch. Speed 0 + Frame-Scrubber
-          = exakt reproduzierbare Standbilder für Exports.
+          {isPg
+            ? 'Playground: frei experimentieren, „Speichern" sichert deinen Stand.'
+            : `Du bearbeitest den Zustand „${DEFAULT_STATES[target].label}". „Speichern" übernimmt ihn — die Zustände-Seite (Preview) nutzt ihn dann sofort.`}
         </p>
       </aside>
     </main>
