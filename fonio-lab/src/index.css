@@ -316,3 +316,12 @@ input[type='range'] {
   background: #eeeffe; filter: blur(90px); opacity: 0.7;
 }
 .wave-canvas { position: relative; }
+
+/* rotor: rotates the shader canvas at full frame rate via direct DOM transform.
+   Oversized (inset -22%) so the square canvas never shows gaps in the round mask. */
+.orb-rotor {
+  position: absolute;
+  inset: -22%;
+  will-change: transform;
+}
+.orb-rotor > .orb-shader { position: absolute; inset: 0; }

@@ -103,8 +103,7 @@ export default function OrbPage() {
   const [pg, setPg] = useState<Playground>(loadPg)
   const [stateDraft, setStateDraft] = useState<StateParams>(() => loadStates().idle.p)
   const [dirty, setDirty] = useState(false)
-  const [spin, setSpin] = useState(0)
-  const spinRef = useRef(0)
+  const rotorRef = useRef<HTMLDivElement | null>(null)
   const [savedMsg, setSavedMsg] = useState('')
 
   const isPg = target === 'playground'
@@ -128,22 +127,24 @@ export default function OrbPage() {
     setTimeout(() => setSavedMsg(''), 2000)
   }
 
-  // continuous rotation (deg/s), negative = counterclockwise
+  // continuous rotation (deg/s), negative = counterclockwise.
+  // Applied as a direct DOM transform every frame — no React re-renders, no jank.
   const activeRotSpeed = isPg ? pg.rotSpeed : stateDraft.rotationSpeed
+  const rotSpeedRef = useRef(activeRotSpeed)
+  rotSpeedRef.current = activeRotSpeed
   useEffect(() => {
-    if (!activeRotSpeed) return
     let raf = 0
+    let angle = 0
     let last = performance.now()
-    let lastRender = 0
     const tick = (now: number) => {
-      spinRef.current = (spinRef.current + activeRotSpeed * ((now - last) / 1000)) % 360
+      angle = (angle + rotSpeedRef.current * ((now - last) / 1000)) % 360
       last = now
-      if (now - lastRender > 33) { lastRender = now; setSpin(spinRef.current) }
+      if (rotorRef.current) rotorRef.current.style.transform = `rotate(${angle}deg)`
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [activeRotSpeed, isPg])
+  }, [])
 
   // warn about unsaved changes on tab close
   useEffect(() => {
@@ -174,40 +175,41 @@ export default function OrbPage() {
     <main className="page">
       <div className="orb-stage">
         <div className="orb" style={isPg ? undefined : { transform: `translateX(${stateDraft.offsetX * 260}px) scale(${stateDraft.scale})` }}>
+          <div className="orb-rotor" ref={rotorRef}>
           {isPg ? (
             <>
               {pg.mode === 'mesh' && (
                 <MeshGradient className="orb-shader" width="100%" height="100%"
                   colors={pg.colors} speed={pg.speed} frame={pg.frame} scale={pg.scale}
-                  rotation={(pg.rotation + spin) % 360} offsetX={pg.offsetX} offsetY={pg.offsetY}
+                  rotation={pg.rotation} offsetX={pg.offsetX} offsetY={pg.offsetY}
                   distortion={pg.distortion} swirl={pg.swirl}
                   grainMixer={pg.grainMixer} grainOverlay={pg.grainOverlay} />
               )}
               {pg.mode === 'grain' && (
                 <GrainGradient className="orb-shader" width="100%" height="100%"
                   colorBack="#FFFFFF" colors={nonWhite.slice(0, 7)}
-                  speed={pg.speed} frame={pg.frame} scale={pg.scale} rotation={(pg.rotation + spin) % 360}
+                  speed={pg.speed} frame={pg.frame} scale={pg.scale} rotation={pg.rotation}
                   offsetX={pg.offsetX} offsetY={pg.offsetY}
                   softness={pg.softness} intensity={pg.intensity} noise={pg.noise} shape={pg.shape} />
               )}
               {pg.mode === 'metaballs' && (
                 <Metaballs className="orb-shader" width="100%" height="100%"
                   colorBack="#FFFFFF" colors={nonWhite.slice(0, 8)}
-                  speed={pg.speed} frame={pg.frame} scale={pg.scale} rotation={(pg.rotation + spin) % 360}
+                  speed={pg.speed} frame={pg.frame} scale={pg.scale} rotation={pg.rotation}
                   offsetX={pg.offsetX} offsetY={pg.offsetY}
                   count={pg.mbCount} size={pg.mbSize} />
               )}
               {pg.mode === 'warp' && (
                 <Warp className="orb-shader" width="100%" height="100%"
                   colors={pg.colors.slice(0, 10)} speed={pg.speed} frame={pg.frame}
-                  scale={pg.scale} rotation={(pg.rotation + spin) % 360} offsetX={pg.offsetX} offsetY={pg.offsetY}
+                  scale={pg.scale} rotation={pg.rotation} offsetX={pg.offsetX} offsetY={pg.offsetY}
                   proportion={pg.wProportion} softness={pg.wSoftness} distortion={pg.wDistortion}
                   swirl={pg.wSwirl} swirlIterations={pg.wSwirlIterations} shape={pg.wShape} />
               )}
               {pg.mode === 'smokering' && (
                 <SmokeRing className="orb-shader" width="100%" height="100%"
                   colorBack="#FFFFFF" colors={nonWhite.slice(0, 8)}
-                  speed={pg.speed} frame={pg.frame} scale={pg.scale} rotation={(pg.rotation + spin) % 360}
+                  speed={pg.speed} frame={pg.frame} scale={pg.scale} rotation={pg.rotation}
                   offsetX={pg.offsetX} offsetY={pg.offsetY}
                   noiseScale={pg.srNoiseScale} thickness={pg.srThickness}
                   radius={pg.srRadius} innerShape={pg.srInnerShape} />
@@ -215,10 +217,11 @@ export default function OrbPage() {
             </>
           ) : (
             <MeshGradient className="orb-shader" width="100%" height="100%"
-              colors={stateDraft.colors} speed={stateDraft.speed} rotation={spin}
+              colors={stateDraft.colors} speed={stateDraft.speed}
               distortion={stateDraft.distortion} swirl={stateDraft.swirl}
               grainMixer={stateDraft.grainMixer} grainOverlay={0} />
           )}
+          </div>
           <div className="orb-overlay" style={{ opacity: soften }} />
           <div className="orb-highlight" />
         </div>
