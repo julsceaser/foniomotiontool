@@ -356,3 +356,53 @@ input[type='range'] {
 .pulse-row { display: flex; align-items: center; gap: 8px; font: 500 14px 'Geist', system-ui, sans-serif; color: #09090b; cursor: pointer; }
 .export-btn { width: 100%; padding: 13px; font-size: 15px; }
 input[type='file'] { font: 400 13px 'Geist', system-ui, sans-serif; }
+
+/* clip editor v2 */
+.trans-row { position: relative; height: 26px; }
+.trans-bar {
+  position: absolute; top: 2px; height: 18px; border-radius: 999px;
+  background: #0f0f16; color: #fff; display: flex; align-items: center; justify-content: center;
+  font: 600 10px 'Geist', system-ui, sans-serif; min-width: 30px; z-index: 2;
+}
+.clip-row-wrap { display: flex; align-items: stretch; gap: 8px; }
+.clip-row {
+  position: relative; flex: 1; height: 64px; display: flex; gap: 2px;
+  background: #f4f4f5; border-radius: 12px; padding: 3px; cursor: pointer;
+}
+.clip {
+  position: relative; height: 100%; border-radius: 9px; min-width: 36px;
+  display: flex; align-items: center; justify-content: center; flex-direction: column;
+  color: #fff; cursor: grab; overflow: hidden; opacity: 0.92;
+}
+.clip.selected { outline: 3px solid #0f0f16; outline-offset: -3px; }
+.clip-label { font: 600 13px 'Geist', system-ui, sans-serif; text-shadow: 0 1px 4px rgba(0,0,0,0.25); pointer-events: none; }
+.clip-dur { font: 500 10px 'Geist', system-ui, sans-serif; opacity: 0.85; pointer-events: none; }
+.clip-x {
+  position: absolute; top: 3px; right: 6px; border: none; background: rgba(0,0,0,0.25);
+  color: #fff; width: 16px; height: 16px; border-radius: 50%; font-size: 10px; line-height: 1;
+  cursor: pointer; display: none;
+}
+.clip:hover .clip-x { display: block; }
+.clip-edge {
+  position: absolute; top: 0; bottom: 0; width: 9px; cursor: ew-resize; z-index: 3;
+}
+.clip-edge.l { left: 0; border-left: 3px solid rgba(255,255,255,0.55); }
+.clip-edge.r { right: 0; border-right: 3px solid rgba(255,255,255,0.55); }
+.plus-wrap { position: relative; display: flex; align-items: center; }
+.plus-btn {
+  width: 48px; height: 64px; border-radius: 12px; border: 2px dashed #c9c9ce;
+  background: #fff; color: #585dfe; font-size: 22px; cursor: pointer;
+}
+.plus-btn:hover { border-color: #585dfe; background: #eeeffe; }
+.state-picker {
+  position: absolute; right: 0; top: 70px; z-index: 30; width: 210px;
+  background: #fff; border: 1px solid #e4e4e7; border-radius: 14px; padding: 8px;
+  box-shadow: 0 16px 48px rgba(15,18,28,0.18); display: flex; flex-direction: column; gap: 2px;
+}
+.picker-item {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: none;
+  background: none; border-radius: 9px; font: 500 14px 'Geist', system-ui, sans-serif;
+  color: #09090b; cursor: pointer; text-align: left;
+}
+.picker-item:hover { background: #f4f4f5; }
+.picker-dot { width: 14px; height: 14px; border-radius: 50%; }

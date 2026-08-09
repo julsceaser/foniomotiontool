@@ -132,3 +132,35 @@ export function buildFrames(job, states, extraFrames = 0) {
   }
   return frames
 }
+
+/**
+ * Automatische Transitions (Übergang IN einen Zustand) + Default-Dauern.
+ * Jetzt fix — später einstellbar und als Design-Standard festgeschrieben.
+ */
+export const AUTO_TRANSITIONS = {
+  idle:      { transition: 0.8,  ease: 'smooth' },
+  listening: { transition: 0.5,  ease: 'smooth' },
+  thinking:  { transition: 0.8,  ease: 'smooth' },
+  speaking:  { transition: 0.4,  ease: 'smooth' },
+  success:   { transition: 0.35, ease: 'spring' },
+  unsure:    { transition: 0.7,  ease: 'smooth' },
+  transfer:  { transition: 0.6,  ease: 'smooth' },
+  offline:   { transition: 1.0,  ease: 'smooth' },
+}
+export const DEFAULT_CLIP_DURATION = { success: 1.2, transfer: 2, _default: 3 }
+
+/** Clip-Sequenz → Marker-Liste für die Engine (Startzeiten kumulativ). */
+export function clipsToMarkers(clips) {
+  const markers = []
+  let t = 0
+  for (let i = 0; i < clips.length; i++) {
+    const auto = AUTO_TRANSITIONS[clips[i].state] ?? { transition: 0.6, ease: 'smooth' }
+    markers.push({
+      time: Math.round(t * 100) / 100,
+      state: clips[i].state,
+      ...(i > 0 ? { transition: auto.transition, ease: auto.ease } : {}),
+    })
+    t += clips[i].duration
+  }
+  return markers
+}
