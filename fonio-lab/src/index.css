@@ -246,3 +246,29 @@ input[type='range'] {
   font-size: 0.85rem;
   color: var(--muted-foreground);
 }
+
+/* segmented buttons + color swatch controls */
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg-btn {
+  font: 500 13px/1 'Geist', system-ui, sans-serif;
+  padding: 7px 12px; border-radius: 9px; border: 1px solid #e4e4e7;
+  background: #fff; color: #09090b; cursor: pointer;
+}
+.seg-btn.active { background: #585dfe; border-color: #585dfe; color: #fff; }
+.mini-btn {
+  font: 500 12px/1 'Geist', system-ui, sans-serif;
+  padding: 5px 9px; border-radius: 8px; border: 1px solid #e4e4e7;
+  background: #f7f8fc; color: #09090b; cursor: pointer;
+}
+.swatch-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.swatch { position: relative; display: inline-flex; }
+.swatch input[type='color'] {
+  width: 34px; height: 34px; padding: 0; border: 1px solid #e4e4e7;
+  border-radius: 9px; background: none; cursor: pointer;
+}
+.swatch-x {
+  position: absolute; top: -6px; right: -6px; width: 16px; height: 16px;
+  border-radius: 50%; border: none; background: #0f0f16; color: #fff;
+  font-size: 10px; line-height: 1; cursor: pointer; display: none;
+}
+.swatch:hover .swatch-x { display: block; }
