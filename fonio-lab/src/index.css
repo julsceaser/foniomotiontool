@@ -279,3 +279,18 @@ input[type='range'] {
 .level-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #585dfe, #58e8fe, #58fe85); transition: width 60ms linear; }
 
 .active-mini { background: #585dfe; border-color: #585dfe; color: #fff; }
+
+/* hover tooltips */
+.has-tip { position: relative; }
+.has-tip::after {
+  content: attr(data-tip);
+  position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 20;
+  max-width: 280px; padding: 8px 11px; border-radius: 10px;
+  background: #0f0f16; color: #fff;
+  font: 400 12.5px/1.45 'Geist', system-ui, sans-serif;
+  opacity: 0; pointer-events: none; transform: translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  box-shadow: 0 8px 24px rgba(15, 18, 28, 0.25);
+  white-space: normal; width: max-content;
+}
+.has-tip:hover::after { opacity: 1; transform: translateY(0); }

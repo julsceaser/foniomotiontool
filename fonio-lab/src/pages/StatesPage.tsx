@@ -86,10 +86,10 @@ const lerpColor = (a: string, b: string, t: number) => {
   return rgbToHex(lerp(ar, br, t), lerp(ag, bg, t), lerp(ab, bb, t))
 }
 
-function Slider(props: { label: string; value: number; min: number; max: number; step?: number; onChange: (v: number) => void }) {
-  const { label, value, min, max, step = 0.01, onChange } = props
+function Slider(props: { label: string; hint: string; value: number; min: number; max: number; step?: number; onChange: (v: number) => void }) {
+  const { label, hint, value, min, max, step = 0.01, onChange } = props
   return (
-    <label className="control">
+    <label className="control has-tip" data-tip={hint}>
       <span className="control-label"><span>{label}</span><span>{value.toFixed(2)}</span></span>
       <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
     </label>
@@ -258,13 +258,13 @@ export default function StatesPage() {
 
         {editMode && (
           <>
-            <Slider label="Speed" value={cur.p.speed} min={0} max={1} onChange={(v) => patch({ speed: v })} />
-            <Slider label="Distortion" value={cur.p.distortion} min={0} max={1} onChange={(v) => patch({ distortion: v })} />
-            <Slider label="Swirl" value={cur.p.swirl} min={0} max={1} onChange={(v) => patch({ swirl: v })} />
-            <Slider label="Grain" value={cur.p.grainMixer} min={0} max={1} onChange={(v) => patch({ grainMixer: v })} />
-            <Slider label="Scale" value={cur.p.scale} min={0.3} max={1.5} onChange={(v) => patch({ scale: v })} />
-            <Slider label="Soften (Weiß)" value={cur.p.soften} min={0} max={0.8} onChange={(v) => patch({ soften: v })} />
-            <Slider label="Versatz X" value={cur.p.offsetX} min={-1} max={1} onChange={(v) => patch({ offsetX: v })} />
+            <Slider label="Speed" hint={"Wie schnell sich der Verlauf in diesem Zustand bewegt."} value={cur.p.speed} min={0} max={1} onChange={(v) => patch({ speed: v })} />
+            <Slider label="Distortion" hint={"Verformung der Farbflächen — hoch = organisch-waberig."} value={cur.p.distortion} min={0} max={1} onChange={(v) => patch({ distortion: v })} />
+            <Slider label="Swirl" hint={"Wirbel: zieht die Farben spiralförmig ineinander."} value={cur.p.swirl} min={0} max={1} onChange={(v) => patch({ swirl: v })} />
+            <Slider label="Grain" hint={"Körnung in den Übergängen — Gedankenrauschen."} value={cur.p.grainMixer} min={0} max={1} onChange={(v) => patch({ grainMixer: v })} />
+            <Slider label="Scale" hint={"Größe des Orbs in diesem Zustand."} value={cur.p.scale} min={0.3} max={1.5} onChange={(v) => patch({ scale: v })} />
+            <Slider label="Soften (Weiß)" hint={"Weißes Overlay — der Pastell-Regler."} value={cur.p.soften} min={0} max={0.8} onChange={(v) => patch({ soften: v })} />
+            <Slider label="Versatz X" hint={"Schiebt den Orb horizontal — für Zustände wie Durchstellen."} value={cur.p.offsetX} min={-1} max={1} onChange={(v) => patch({ offsetX: v })} />
             <div className="control">
               <span className="control-label"><span>Farben dieses Zustands</span></span>
               <div className="swatch-row">

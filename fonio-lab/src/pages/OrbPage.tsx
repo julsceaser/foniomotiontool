@@ -1,13 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { MeshGradient, GrainGradient } from '@paper-design/shaders-react'
 
 /**
  * Fonio orb — soft pastel sphere built from the 4 brand base colors.
- * Full parameter surface of both Paper Shaders exposed:
- *  - MeshGradient: colors (max 10), speed, distortion, swirl, grainMixer,
- *    grainOverlay, scale, rotation
- *  - GrainGradient: colors, speed, softness, intensity, noise, shape
- * Plus the lab-own white "Soften" overlay for the pastel look.
+ * All settings persist in localStorage; every slider has a hover tooltip.
  */
 
 const PRESETS: Record<string, string[]> = {
@@ -24,96 +20,92 @@ const PRESETS: Record<string, string[]> = {
 
 type ShaderKind = 'mesh' | 'grain'
 const GRAIN_SHAPES = ['blob', 'wave', 'ripple', 'dots', 'corners', 'truchet'] as const
+type GrainShape = (typeof GRAIN_SHAPES)[number]
+
+type Settings = {
+  kind: ShaderKind
+  colors: string[]
+  speed: number
+  scale: number
+  rotation: number
+  soften: number
+  distortion: number
+  swirl: number
+  grainMixer: number
+  grainOverlay: number
+  softness: number
+  intensity: number
+  noise: number
+  shape: GrainShape
+}
+
+const DEFAULTS: Settings = {
+  kind: 'mesh',
+  colors: PRESETS['Grundfarben (4)'],
+  speed: 0.18, scale: 1, rotation: 0, soften: 0.36,
+  distortion: 0.6, swirl: 0.35, grainMixer: 0, grainOverlay: 0,
+  softness: 0.6, intensity: 0.35, noise: 0.3, shape: 'blob',
+}
+
+const LS_KEY = 'fonio-orb-tuning-v1'
+const load = (): Settings => {
+  try {
+    const raw = localStorage.getItem(LS_KEY)
+    if (raw) return { ...DEFAULTS, ...JSON.parse(raw) }
+  } catch { /* ignore */ }
+  return { ...DEFAULTS, colors: [...DEFAULTS.colors] }
+}
 
 function Slider(props: {
   label: string
+  hint: string
   value: number
   min: number
   max: number
   step?: number
   onChange: (v: number) => void
 }) {
-  const { label, value, min, max, step = 0.01, onChange } = props
+  const { label, hint, value, min, max, step = 0.01, onChange } = props
   return (
-    <label className="control">
+    <label className="control has-tip" data-tip={hint}>
       <span className="control-label">
         <span>{label}</span>
         <span>{value.toFixed(2)}</span>
       </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(Number(e.target.value))} />
     </label>
   )
 }
 
 export default function OrbPage() {
-  const [kind, setKind] = useState<ShaderKind>('mesh')
-  const [colors, setColors] = useState<string[]>(PRESETS['Grundfarben (4)'])
+  const [s, setS] = useState<Settings>(load)
+  const patch = (p: Partial<Settings>) => setS((old) => ({ ...old, ...p }))
 
-  // shared
-  const [speed, setSpeed] = useState(0.18)
-  const [scale, setScale] = useState(1)
-  const [rotation, setRotation] = useState(0)
-  const [soften, setSoften] = useState(0.36)
+  useEffect(() => { localStorage.setItem(LS_KEY, JSON.stringify(s)) }, [s])
 
-  // mesh
-  const [distortion, setDistortion] = useState(0.6)
-  const [swirl, setSwirl] = useState(0.35)
-  const [grainMixer, setGrainMixer] = useState(0)
-  const [grainOverlay, setGrainOverlay] = useState(0)
-
-  // grain gradient
-  const [softness, setSoftness] = useState(0.6)
-  const [intensity, setIntensity] = useState(0.35)
-  const [noise, setNoise] = useState(0.3)
-  const [shape, setShape] = useState<(typeof GRAIN_SHAPES)[number]>('blob')
-
-  const setColor = (i: number, v: string) =>
-    setColors((c) => c.map((x, j) => (j === i ? v : x)))
-  const removeColor = (i: number) => setColors((c) => c.filter((_, j) => j !== i))
-  const addColor = () => setColors((c) => (c.length < 10 ? [...c, '#FFFFFF'] : c))
+  const setColor = (i: number, v: string) => patch({ colors: s.colors.map((x, j) => (j === i ? v : x)) })
+  const removeColor = (i: number) => patch({ colors: s.colors.filter((_, j) => j !== i) })
+  const addColor = () => { if (s.colors.length < 10) patch({ colors: [...s.colors, '#FFFFFF'] }) }
+  const reset = () => { localStorage.removeItem(LS_KEY); setS({ ...DEFAULTS, colors: [...DEFAULTS.colors] }) }
 
   return (
     <main className="page">
       <div className="orb-stage">
         <div className="orb">
-          {kind === 'mesh' ? (
-            <MeshGradient
-              className="orb-shader"
-              width="100%"
-              height="100%"
-              colors={colors}
-              speed={speed}
-              distortion={distortion}
-              swirl={swirl}
-              grainMixer={grainMixer}
-              grainOverlay={grainOverlay}
-              scale={scale}
-              rotation={rotation}
-            />
+          {s.kind === 'mesh' ? (
+            <MeshGradient className="orb-shader" width="100%" height="100%"
+              colors={s.colors} speed={s.speed} distortion={s.distortion} swirl={s.swirl}
+              grainMixer={s.grainMixer} grainOverlay={s.grainOverlay}
+              scale={s.scale} rotation={s.rotation} />
           ) : (
-            <GrainGradient
-              className="orb-shader"
-              width="100%"
-              height="100%"
+            <GrainGradient className="orb-shader" width="100%" height="100%"
               colorBack="#FFFFFF"
-              colors={colors.filter((c) => c.toUpperCase() !== '#FFFFFF').slice(0, 7)}
-              speed={speed}
-              softness={softness}
-              intensity={intensity}
-              noise={noise}
-              shape={shape}
-              scale={scale}
-              rotation={rotation}
-            />
+              colors={s.colors.filter((c) => c.toUpperCase() !== '#FFFFFF').slice(0, 7)}
+              speed={s.speed} softness={s.softness} intensity={s.intensity}
+              noise={s.noise} shape={s.shape} scale={s.scale} rotation={s.rotation} />
           )}
-          <div className="orb-overlay" style={{ opacity: soften }} />
+          <div className="orb-overlay" style={{ opacity: s.soften }} />
           <div className="orb-highlight" />
         </div>
       </div>
@@ -121,42 +113,32 @@ export default function OrbPage() {
       <aside className="controls">
         <h1 className="page-title">Orb / Tuning</h1>
 
-        <div className="control">
-          <span className="control-label"><span>Shader</span></span>
+        <div className="control has-tip" data-tip="Mesh = glatter Verlauf wie das Original. Grain = körnige, texturierte Variante mit wählbarer Grundform.">
+          <span className="control-label"><span>Shader</span>
+            <button className="mini-btn" onClick={reset}>Zurücksetzen</button>
+          </span>
           <div className="seg">
-            <button
-              className={kind === 'mesh' ? 'seg-btn active' : 'seg-btn'}
-              onClick={() => setKind('mesh')}
-            >
-              Mesh (glatt)
-            </button>
-            <button
-              className={kind === 'grain' ? 'seg-btn active' : 'seg-btn'}
-              onClick={() => setKind('grain')}
-            >
-              Grain (Textur)
-            </button>
+            <button className={s.kind === 'mesh' ? 'seg-btn active' : 'seg-btn'} onClick={() => patch({ kind: 'mesh' })}>Mesh (glatt)</button>
+            <button className={s.kind === 'grain' ? 'seg-btn active' : 'seg-btn'} onClick={() => patch({ kind: 'grain' })}>Grain (Textur)</button>
           </div>
         </div>
 
-        <div className="control">
+        <div className="control has-tip" data-tip="Setzt alle 10 Farb-Stops auf ein vordefiniertes Set. Danach einzeln anpassbar.">
           <span className="control-label"><span>Farb-Preset</span></span>
           <div className="seg">
             {Object.keys(PRESETS).map((p) => (
-              <button key={p} className="seg-btn" onClick={() => setColors(PRESETS[p])}>
-                {p}
-              </button>
+              <button key={p} className="seg-btn" onClick={() => patch({ colors: [...PRESETS[p]] })}>{p}</button>
             ))}
           </div>
         </div>
 
-        <div className="control">
+        <div className="control has-tip" data-tip="Die Farb-Stops des Verlaufs (max. 10). Mehr Weiß = pastelliger. Klick auf eine Farbe öffnet den Picker, × entfernt sie.">
           <span className="control-label">
-            <span>Farben ({colors.length}/10)</span>
+            <span>Farben ({s.colors.length}/10)</span>
             <button className="mini-btn" onClick={addColor}>+ Farbe</button>
           </span>
           <div className="swatch-row">
-            {colors.map((c, i) => (
+            {s.colors.map((c, i) => (
               <span key={i} className="swatch">
                 <input type="color" value={c} onChange={(e) => setColor(i, e.target.value)} />
                 <button className="swatch-x" onClick={() => removeColor(i)}>×</button>
@@ -165,46 +147,38 @@ export default function OrbPage() {
           </div>
         </div>
 
-        <Slider label="Speed" value={speed} min={0} max={1} onChange={setSpeed} />
-        <Slider label="Scale" value={scale} min={0.3} max={3} onChange={setScale} />
-        <Slider label="Rotation" value={rotation} min={0} max={360} step={1} onChange={setRotation} />
+        <Slider label="Speed" hint="Wie schnell sich der Verlauf bewegt. 0 = eingefroren, gut für Standbilder." value={s.speed} min={0} max={1} onChange={(v) => patch({ speed: v })} />
+        <Slider label="Scale" hint="Zoom ins Verlaufsmuster — kleiner = mehr Struktur sichtbar, größer = ruhiger." value={s.scale} min={0.3} max={3} onChange={(v) => patch({ scale: v })} />
+        <Slider label="Rotation" hint="Dreht das gesamte Verlaufsmuster in Grad." value={s.rotation} min={0} max={360} step={1} onChange={(v) => patch({ rotation: v })} />
 
-        {kind === 'mesh' ? (
+        {s.kind === 'mesh' ? (
           <>
-            <Slider label="Distortion" value={distortion} min={0} max={1} onChange={setDistortion} />
-            <Slider label="Swirl" value={swirl} min={0} max={1} onChange={setSwirl} />
-            <Slider label="Grain Mixer (Körnung im Verlauf)" value={grainMixer} min={0} max={1} onChange={setGrainMixer} />
-            <Slider label="Grain Overlay (Körnung obendrauf)" value={grainOverlay} min={0} max={1} onChange={setGrainOverlay} />
+            <Slider label="Distortion" hint="Verformt die Farbflächen — hoch = organischer und waberiger, niedrig = ruhige weiche Flächen." value={s.distortion} min={0} max={1} onChange={(v) => patch({ distortion: v })} />
+            <Slider label="Swirl" hint="Wirbel-Effekt: zieht die Farben spiralförmig ineinander. Hoch = ‚Nachdenken'-Look." value={s.swirl} min={0} max={1} onChange={(v) => patch({ swirl: v })} />
+            <Slider label="Grain Mixer" hint="Körnung IN den Farbübergängen — macht die Kanten der Flächen körnig-organisch." value={s.grainMixer} min={0} max={1} onChange={(v) => patch({ grainMixer: v })} />
+            <Slider label="Grain Overlay" hint="Körnung als Schicht über allem — wie Filmkorn auf dem ganzen Orb." value={s.grainOverlay} min={0} max={1} onChange={(v) => patch({ grainOverlay: v })} />
           </>
         ) : (
           <>
-            <Slider label="Softness" value={softness} min={0} max={1} onChange={setSoftness} />
-            <Slider label="Intensity" value={intensity} min={0} max={1} onChange={setIntensity} />
-            <Slider label="Noise" value={noise} min={0} max={1} onChange={setNoise} />
-            <div className="control">
+            <Slider label="Softness" hint="Wie weich die Farbzonen ineinander laufen — hoch = nebelig, niedrig = klare Zonen." value={s.softness} min={0} max={1} onChange={(v) => patch({ softness: v })} />
+            <Slider label="Intensity" hint="Wie kräftig die Körnung die Form modelliert — der Haupt-Charakterregler im Grain-Modus." value={s.intensity} min={0} max={1} onChange={(v) => patch({ intensity: v })} />
+            <Slider label="Noise" hint="Menge an Rauschen/Textur im Bild." value={s.noise} min={0} max={1} onChange={(v) => patch({ noise: v })} />
+            <div className="control has-tip" data-tip="Grundform des Grain-Verlaufs — blob kommt dem Orb am nächsten.">
               <span className="control-label"><span>Shape</span></span>
               <div className="seg">
-                {GRAIN_SHAPES.map((s) => (
-                  <button
-                    key={s}
-                    className={shape === s ? 'seg-btn active' : 'seg-btn'}
-                    onClick={() => setShape(s)}
-                  >
-                    {s}
-                  </button>
+                {GRAIN_SHAPES.map((sh) => (
+                  <button key={sh} className={s.shape === sh ? 'seg-btn active' : 'seg-btn'} onClick={() => patch({ shape: sh })}>{sh}</button>
                 ))}
               </div>
             </div>
           </>
         )}
 
-        <Slider label="Soften (weißes Overlay)" value={soften} min={0} max={0.8} onChange={setSoften} />
+        <Slider label="Soften (weißes Overlay)" hint="Legt Weiß über den ganzen Orb — der Pastell-Regler. Hoch drehen, wenn es zu satt/neon wirkt." value={s.soften} min={0} max={0.8} onChange={(v) => patch({ soften: v })} />
 
         <p className="control-hint">
-          Ziel-Look: pastellig und weich — jeder Pixel eine Mischung aus Blau,
-          Cyan, Grün und Weiß. „Grain" gibt dem Orb Textur wie im
-          Original-Render. Presets oben wechseln die Farbwelt, jede Farbe ist
-          einzeln editierbar.
+          Alle Einstellungen werden automatisch gespeichert und überleben den
+          Reload. „Zurücksetzen" holt die Standard-Werte zurück.
         </p>
       </aside>
     </main>
