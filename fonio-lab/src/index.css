@@ -272,3 +272,8 @@ input[type='range'] {
   font-size: 10px; line-height: 1; cursor: pointer; display: none;
 }
 .swatch:hover .swatch-x { display: block; }
+
+/* states page */
+.states-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.level-track { margin-top: 8px; height: 6px; border-radius: 999px; background: #f0f0f2; overflow: hidden; }
+.level-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #585dfe, #58e8fe, #58fe85); transition: width 60ms linear; }

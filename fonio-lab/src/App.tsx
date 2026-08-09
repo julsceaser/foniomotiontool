@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import OrbPage from './pages/OrbPage'
 import WavePage from './pages/WavePage'
+import StatesPage from './pages/StatesPage'
 
 function usePath(): [string, (p: string) => void] {
   const [path, setPath] = useState(window.location.pathname)
@@ -44,8 +45,9 @@ export default function App() {
         </div>
         {link('/', 'Orb')}
         {link('/wave', 'Soundwave')}
+        {link('/states', 'Zustände')}
       </nav>
-      {path === '/wave' ? <WavePage /> : <OrbPage />}
+      {path === '/wave' ? <WavePage /> : path === '/states' ? <StatesPage /> : <OrbPage />}
     </>
   )
 }
