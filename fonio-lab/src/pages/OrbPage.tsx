@@ -112,6 +112,7 @@ export default function OrbPage() {
   const micStream = useRef<MediaStream | null>(null)
   const voiceEl = useRef<HTMLAudioElement | null>(null)
   const voiceConnected = useRef(false)
+  const envR = useRef(0)
   const [savedMsg, setSavedMsg] = useState('')
 
   const isPg = target === 'playground'
@@ -184,8 +185,9 @@ export default function OrbPage() {
         analyser.current.getByteTimeDomainData(data)
         let sum = 0
         for (let i = 0; i < data.length; i++) { const d = (data[i] - 128) / 128; sum += d * d }
-        const lvl = Math.min(1, Math.sqrt(sum / data.length) * 4)
-        if (now - lastRender > 33) { lastRender = now; setLevel(lvl) }
+        const raw = Math.min(1, Math.sqrt(sum / data.length) * 4)
+        envR.current = raw > envR.current ? envR.current + (raw - envR.current) * 0.5 : envR.current + (raw - envR.current) * 0.06
+        if (now - lastRender > 33) { lastRender = now; setLevel(envR.current) }
       } else if (level !== 0 && now - lastRender > 200) { lastRender = now; setLevel(0) }
       raf = requestAnimationFrame(tick)
     }
@@ -285,7 +287,7 @@ export default function OrbPage() {
           ) : (
             <MeshGradient className="orb-shader" width="100%" height="100%"
               colors={stateDraft.colors} speed={stateDraft.speed}
-              distortion={stateDraft.distortion + (['listening', 'speaking'].includes(target) ? level * 0.4 : 0)} swirl={stateDraft.swirl}
+              distortion={stateDraft.distortion + (['listening', 'speaking'].includes(target) ? level * 0.12 : 0)} swirl={stateDraft.swirl}
               grainMixer={stateDraft.grainMixer} grainOverlay={0} />
           )}
           </div>

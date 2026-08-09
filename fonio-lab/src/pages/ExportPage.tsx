@@ -218,7 +218,7 @@ export default function ExportPage() {
       const fi = Math.floor(playhead * fps)
       const audible = ['listening', 'speaking'].includes(stateNameAt(job, playhead))
       const lvl = audible ? (audioRms?.[fi] ?? 0) : 0
-      return { ...p, scale: p.scale + lvl * 0.18, distortion: p.distortion + lvl * 0.4 }
+      return { ...p, speed: p.speed + lvl * 0.7, distortion: p.distortion + lvl * 0.12 }
     } catch { return null }
   }, [playhead, job, states, fps, audioRms])
 

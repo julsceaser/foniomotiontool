@@ -121,18 +121,23 @@ export function buildFrames(job, states, extraFrames = 0) {
   const frames = []
   let shaderFrame = 0
   let rotationDeg = 0
+  let env = 0
   const dtMs = 1000 / fps
   for (let f = 0; f < total; f++) {
     const t = (f / fps) % job.duration // hinter duration: zyklisch (Loop-Tail)
     const p = paramsAt(job, states, t)
     shaderFrame += p.speed * dtMs
     rotationDeg = (rotationDeg + p.rotationSpeed * (1 / fps)) % 360
-    // Stimme bewegt die OBERFLÄCHE (Distortion + inneres Muster-Zoom), nie die Ball-Größe
-    const lvl = AUDIO_STATES.has(stateNameAt(job, t)) ? (rms[f % Math.max(1, rms.length)] ?? 0) : 0
+    // Stimme beschleunigt die Oberflächen-Bewegung (Speed) + hauchzarte Distortion —
+    // nie Ball-Größe, nie hartes Zucken (Envelope: Attack schnell, Release langsam)
+    const raw = AUDIO_STATES.has(stateNameAt(job, t)) ? (rms[f % Math.max(1, rms.length)] ?? 0) : 0
+    env = raw > env ? env + (raw - env) * 0.5 : env + (raw - env) * 0.06
+    const spd = p.speed + env * 0.7
+    shaderFrame += (spd - p.speed) * dtMs // Zusatz-Zeit durch Stimm-Beschleunigung
     frames.push({
       ...p,
-      distortion: p.distortion + lvl * 0.4,
-      scale: p.scale + lvl * 0.18,
+      speed: spd,
+      distortion: p.distortion + env * 0.12,
       shaderFrame, rotationDeg,
     })
   }
