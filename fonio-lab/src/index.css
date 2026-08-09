@@ -277,3 +277,5 @@ input[type='range'] {
 .states-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .level-track { margin-top: 8px; height: 6px; border-radius: 999px; background: #f0f0f2; overflow: hidden; }
 .level-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #585dfe, #58e8fe, #58fe85); transition: width 60ms linear; }
+
+.active-mini { background: #585dfe; border-color: #585dfe; color: #fff; }
