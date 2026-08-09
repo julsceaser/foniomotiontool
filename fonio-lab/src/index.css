@@ -170,7 +170,7 @@ input[type='range'] {
 /* ---------- controls ---------- */
 
 .controls {
-  width: 300px;
+  width: 322px;
   display: flex;
   flex-direction: column;
   gap: 1.15rem;
@@ -178,9 +178,17 @@ input[type='range'] {
   top: 70px;
   max-height: calc(100vh - 90px);
   overflow-y: auto;
-  padding-right: 6px;
+  padding-right: 14px;
   padding-bottom: 24px;
+  scrollbar-width: thin;               /* Firefox */
+  scrollbar-color: transparent transparent;
 }
+.controls:hover { scrollbar-color: #d4d4d8 transparent; }
+.controls::-webkit-scrollbar { width: 5px; }
+.controls::-webkit-scrollbar-track { background: transparent; }
+.controls::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+.controls:hover::-webkit-scrollbar-thumb { background: #d9d9de; }
+.controls::-webkit-scrollbar-thumb:hover { background: #b9b9c2; }
 
 .control {
   display: flex;
