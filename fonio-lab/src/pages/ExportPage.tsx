@@ -217,8 +217,8 @@ export default function ExportPage() {
       const p = paramsAt(job, states, playhead)
       const fi = Math.floor(playhead * fps)
       const audible = ['listening', 'speaking'].includes(stateNameAt(job, playhead))
-      const boost = audible ? (audioRms?.[fi] ?? 0) * 0.22 : 0
-      return { ...p, scale: p.scale + boost }
+      const lvl = audible ? (audioRms?.[fi] ?? 0) : 0
+      return { ...p, scale: p.scale + lvl * 0.18, distortion: p.distortion + lvl * 0.4 }
     } catch { return null }
   }, [playhead, job, states, fps, audioRms])
 
@@ -280,9 +280,9 @@ export default function ExportPage() {
       <div className="export-main">
         <div className="export-preview">
           {preview && clips.length > 0 && (
-            <div className="orb orb-small" style={{ transform: `translateX(${preview.offsetX * 130}px) scale(${preview.scale})` }}>
+            <div className="orb orb-small" style={{ transform: `translateX(${preview.offsetX * 130}px)` }}>
               <MeshGradient className="orb-shader" width="100%" height="100%"
-                colors={preview.colors} speed={preview.speed}
+                colors={preview.colors} speed={preview.speed} scale={preview.scale}
                 distortion={preview.distortion} swirl={preview.swirl}
                 grainMixer={preview.grainMixer} grainOverlay={0} />
               <div className="orb-overlay" style={{ opacity: preview.soften }} />

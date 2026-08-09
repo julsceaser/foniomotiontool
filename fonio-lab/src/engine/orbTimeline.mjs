@@ -127,8 +127,14 @@ export function buildFrames(job, states, extraFrames = 0) {
     const p = paramsAt(job, states, t)
     shaderFrame += p.speed * dtMs
     rotationDeg = (rotationDeg + p.rotationSpeed * (1 / fps)) % 360
-    const boost = AUDIO_STATES.has(stateNameAt(job, t)) ? (rms[f % Math.max(1, rms.length)] ?? 0) * (job.audioSensitivity ?? 0.22) : 0
-    frames.push({ ...p, scale: p.scale + boost, shaderFrame, rotationDeg })
+    // Stimme bewegt die OBERFLÄCHE (Distortion + inneres Muster-Zoom), nie die Ball-Größe
+    const lvl = AUDIO_STATES.has(stateNameAt(job, t)) ? (rms[f % Math.max(1, rms.length)] ?? 0) : 0
+    frames.push({
+      ...p,
+      distortion: p.distortion + lvl * 0.4,
+      scale: p.scale + lvl * 0.18,
+      shaderFrame, rotationDeg,
+    })
   }
   return frames
 }

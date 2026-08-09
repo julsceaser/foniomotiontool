@@ -241,7 +241,7 @@ export default function OrbPage() {
   return (
     <main className="page">
       <div className="orb-stage">
-        <div className="orb" style={isPg ? undefined : { transform: `translateX(${stateDraft.offsetX * 260}px) scale(${stateDraft.scale + (['listening', 'speaking'].includes(target) ? level * 0.22 : 0)})` }}>
+        <div className="orb" style={isPg ? undefined : { transform: `translateX(${stateDraft.offsetX * 260}px)` }}>
           <div className="orb-rotor" ref={rotorRef}>
           {isPg ? (
             <>
@@ -285,7 +285,7 @@ export default function OrbPage() {
           ) : (
             <MeshGradient className="orb-shader" width="100%" height="100%"
               colors={stateDraft.colors} speed={stateDraft.speed}
-              distortion={stateDraft.distortion} swirl={stateDraft.swirl}
+              distortion={stateDraft.distortion + (['listening', 'speaking'].includes(target) ? level * 0.4 : 0)} swirl={stateDraft.swirl}
               grainMixer={stateDraft.grainMixer} grainOverlay={0} />
           )}
           </div>
@@ -422,7 +422,7 @@ export default function OrbPage() {
             <Slider label="Distortion" hint="Verformung der Farbflächen." value={stateDraft.distortion} min={0} max={1} onChange={(v) => patchState({ distortion: v })} />
             <Slider label="Swirl" hint="Wirbel — hoch = ‚Nachdenken'-Look." value={stateDraft.swirl} min={0} max={1} onChange={(v) => patchState({ swirl: v })} />
             <Slider label="Grain" hint="Körnung — Gedankenrauschen." value={stateDraft.grainMixer} min={0} max={1} onChange={(v) => patchState({ grainMixer: v })} />
-            <Slider label="Scale" hint="Größe des Orbs in diesem Zustand." value={stateDraft.scale} min={0.3} max={1.5} onChange={(v) => patchState({ scale: v })} />
+            <Slider label="Muster-Zoom" hint="Zoomt die INNERE Optik (das Muster) — nicht die Größe des Balls. Klein = mehr Struktur sichtbar, groß = ruhige Flächen." value={stateDraft.scale} min={0.4} max={2} onChange={(v) => patchState({ scale: v })} />
             <Slider label="Soften (Weiß)" hint="Pastell-Regler." value={stateDraft.soften} min={0} max={0.8} onChange={(v) => patchState({ soften: v })} />
             <Slider label="Versatz X" hint="Schiebt den Orb horizontal — z. B. für Durchstellen." value={stateDraft.offsetX} min={-1} max={1} onChange={(v) => patchState({ offsetX: v })} />
             <Slider label="Drehung (°/s)" hint="Kontinuierliche Rotation dieses Zustands. Plus = Uhrzeigersinn, Minus = dagegen, 0 = aus." value={stateDraft.rotationSpeed} min={-120} max={120} step={1} onChange={(v) => patchState({ rotationSpeed: v })} />

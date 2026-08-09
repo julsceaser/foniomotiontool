@@ -41,10 +41,10 @@ export default function RenderPage() {
 
   return (
     <div className="render-stage" id="render-stage">
-      <div className="orb render-orb" style={{ transform: `translateX(${p.offsetX * 260}px) scale(${p.scale})` }}>
+      <div className="orb render-orb" style={{ transform: `translateX(${p.offsetX * 260}px)` }}>
         <div className="orb-rotor" style={{ transform: `rotate(${p.rotationDeg}deg)` }}>
           <MeshGradient className="orb-shader" width="100%" height="100%"
-            colors={p.colors} speed={0} frame={p.shaderFrame}
+            colors={p.colors} speed={0} frame={p.shaderFrame} scale={p.scale}
             distortion={p.distortion} swirl={p.swirl}
             grainMixer={p.grainMixer} grainOverlay={0} />
         </div>

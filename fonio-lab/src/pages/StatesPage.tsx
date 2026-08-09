@@ -110,9 +110,11 @@ export default function StatesPage() {
       c.rotationSpeed = lerp(c.rotationSpeed, t.rotationSpeed, k)
       rotAngle.current = (rotAngle.current + c.rotationSpeed * (1 / 60)) % 360
       if (rotorRef.current) rotorRef.current.style.transform = `rotate(${rotAngle.current}deg)`
-      const breath = stateRef.current === 'idle' ? Math.sin(now / 2200) * 0.015 : 0
-      const audioBoost = (stateRef.current === 'listening' || stateRef.current === 'speaking') ? lvl * 0.22 : 0
-      c.scale = lerp(c.scale, t.scale + breath + audioBoost, 0.12)
+      // Atmung + Stimme wirken auf die INNERE Optik (Muster-Zoom/Distortion), nie auf die Ball-Größe
+      const breath = stateRef.current === 'idle' ? Math.sin(now / 2200) * 0.03 : 0
+      const audible = stateRef.current === 'listening' || stateRef.current === 'speaking'
+      c.scale = lerp(c.scale, t.scale + breath + (audible ? lvl * 0.18 : 0), 0.12)
+      c.distortion = lerp(c.distortion, t.distortion + (audible ? lvl * 0.4 : 0), 0.25)
       c.colors = c.colors.map((col, i) => lerpColor(col, t.colors[i] ?? W, k))
       if (now - lastRender > 33) {
         lastRender = now
@@ -128,10 +130,10 @@ export default function StatesPage() {
   return (
     <main className="page">
       <div className="orb-stage">
-        <div className="orb" style={{ transform: `translateX(${rendered.offsetX * 260}px) scale(${rendered.scale})` }}>
+        <div className="orb" style={{ transform: `translateX(${rendered.offsetX * 260}px)` }}>
           <div className="orb-rotor" ref={rotorRef}>
           <MeshGradient className="orb-shader" width="100%" height="100%"
-            colors={rendered.colors} speed={rendered.speed} distortion={rendered.distortion}
+            colors={rendered.colors} speed={rendered.speed} scale={rendered.scale} distortion={rendered.distortion}
             swirl={rendered.swirl} grainMixer={rendered.grainMixer} grainOverlay={0} />
           </div>
           <div className="orb-overlay" style={{ opacity: rendered.soften }} />

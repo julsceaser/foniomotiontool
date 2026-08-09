@@ -175,7 +175,7 @@
       "distortion": 0.5,
       "swirl": 0.6,
       "grainMixer": 0,
-      "scale": 0.55,
+      "scale": 1,
       "soften": 0.3,
       "offsetX": 0.55,
       "rotationSpeed": 0

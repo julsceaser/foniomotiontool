@@ -50,7 +50,7 @@ export const DEFAULT_STATES: Record<string, StateDef> = {
   },
   transfer: {
     label: 'Durchstellen', hint: 'Der Orb reist zur Seite — er bringt den Anruf woanders hin.',
-    p: { colors: ['#DCFAFC', '#B1E4F7', '#85B2F5', '#98D1F9', W, '#BDF5F3', '#6B98E8', '#A6EEC9', W, '#B2D4F9'], speed: 0.35, distortion: 0.5, swirl: 0.6, grainMixer: 0, scale: 0.55, soften: 0.3, offsetX: 0.55, rotationSpeed: 0 },
+    p: { colors: ['#DCFAFC', '#B1E4F7', '#85B2F5', '#98D1F9', W, '#BDF5F3', '#6B98E8', '#A6EEC9', W, '#B2D4F9'], speed: 0.35, distortion: 0.5, swirl: 0.6, grainMixer: 0, scale: 1, soften: 0.3, offsetX: 0.55, rotationSpeed: 0 },
   },
   offline: {
     label: 'Offline', hint: 'Entsättigt, fast eingefroren.',
