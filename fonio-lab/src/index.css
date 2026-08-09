@@ -325,3 +325,7 @@ input[type='range'] {
   will-change: transform;
 }
 .orb-rotor > .orb-shader { position: absolute; inset: 0; }
+
+/* headless render target: transparent, orb only */
+.render-stage { width: 480px; height: 480px; background: transparent; }
+.render-orb { position: absolute; top: 0; left: 0; }

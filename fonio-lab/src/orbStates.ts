@@ -77,7 +77,26 @@ export function saveStateParams(key: string, p: StateParams): void {
   const all = loadStates()
   if (!all[key]) return
   all[key] = { ...all[key], p: deepCopy(p) }
-  localStorage.setItem(STATES_LS_KEY, JSON.stringify(all))
+  const json = JSON.stringify(all)
+  localStorage.setItem(STATES_LS_KEY, json)
+  // Single source of truth on disk (dev server writes public/states.json) —
+  // the headless AE renderer reads exactly this file.
+  void fetch('/__save-states', { method: 'POST', body: json }).catch(() => {})
+}
+
+/**
+ * On app start: seed localStorage from public/states.json (if present),
+ * so browser cache and the on-disk source stay in sync.
+ */
+export async function syncStatesFromFile(): Promise<void> {
+  try {
+    const res = await fetch('/states.json', { cache: 'no-store' })
+    if (!res.ok) return
+    const fileStates = await res.json()
+    if (fileStates && typeof fileStates === 'object' && fileStates.idle) {
+      localStorage.setItem(STATES_LS_KEY, JSON.stringify(fileStates))
+    }
+  } catch { /* file may not exist yet — defaults apply */ }
 }
 
 export function resetStates(): void {

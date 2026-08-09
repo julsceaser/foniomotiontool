@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import OrbPage from './pages/OrbPage'
 import WavePage from './pages/WavePage'
 import StatesPage from './pages/StatesPage'
+import RenderPage from './pages/RenderPage'
+import { syncStatesFromFile } from './orbStates'
 
 function usePath(): [string, (p: string) => void] {
   const [path, setPath] = useState(window.location.pathname)
@@ -22,6 +24,12 @@ function usePath(): [string, (p: string) => void] {
 
 export default function App() {
   const [path, navigate] = usePath()
+  const [synced, setSynced] = useState(false)
+
+  useEffect(() => { void syncStatesFromFile().finally(() => setSynced(true)) }, [])
+
+  if (path === '/render') return <RenderPage />
+  if (!synced) return null
 
   const link = (to: string, label: string) => (
     <a
