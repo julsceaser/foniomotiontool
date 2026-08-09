@@ -1,0 +1,29 @@
+{
+  "duration": 6,
+  "fps": 30,
+  "loop": true,
+  "markers": [
+    {
+      "time": 0,
+      "state": "idle"
+    },
+    {
+      "time": 2,
+      "state": "thinking",
+      "transition": 0.8
+    },
+    {
+      "time": 6,
+      "state": "speaking",
+      "transition": 0.6
+    },
+    {
+      "time": 8.5,
+      "state": "success",
+      "transition": 0.6,
+      "pulse": true
+    }
+  ],
+  "audioSensitivity": 0.22,
+  "size": 480
+}

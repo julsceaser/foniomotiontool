@@ -329,3 +329,30 @@ input[type='range'] {
 /* headless render target: transparent, orb only */
 .render-stage { width: 480px; height: 480px; background: transparent; }
 .render-orb { position: absolute; top: 0; left: 0; }
+
+/* export page */
+.export-page { align-items: flex-start; }
+.export-main { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 24px 0 0 40px; max-width: 1100px; }
+.export-preview { height: 340px; display: flex; align-items: center; justify-content: center; }
+.orb-small { width: 280px !important; height: 280px !important; }
+.tl-bar { display: flex; align-items: center; gap: 14px; }
+.tl-time { font: 500 14px 'Geist', system-ui, sans-serif; color: #09090b; min-width: 90px; }
+.tl-track {
+  position: relative; height: 56px; border-radius: 12px; overflow: hidden;
+  background: #f4f4f5; cursor: crosshair; touch-action: none;
+}
+.tl-seg { position: absolute; top: 0; bottom: 0; opacity: 0.8; }
+.tl-marker {
+  position: absolute; top: 0; bottom: 0; width: 12px; margin-left: -6px;
+  background: #0f0f16; cursor: grab; z-index: 2;
+  clip-path: polygon(50% 0, 100% 22%, 100% 100%, 0 100%, 0 22%);
+  display: flex; align-items: flex-start; justify-content: center;
+  font-size: 9px; color: #fff; padding-top: 2px;
+}
+.tl-marker.selected { background: #585dfe; }
+.tl-playhead { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #dd23bb; z-index: 3; pointer-events: none; }
+.tl-wave { width: 100%; height: 64px; border-radius: 10px; background: #fafafa; }
+.marker-editor { border: 1px solid #e4e4e7; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.pulse-row { display: flex; align-items: center; gap: 8px; font: 500 14px 'Geist', system-ui, sans-serif; color: #09090b; cursor: pointer; }
+.export-btn { width: 100%; padding: 13px; font-size: 15px; }
+input[type='file'] { font: 400 13px 'Geist', system-ui, sans-serif; }
