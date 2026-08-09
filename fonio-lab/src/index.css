@@ -406,3 +406,25 @@ input[type='file'] { font: 400 13px 'Geist', system-ui, sans-serif; }
 }
 .picker-item:hover { background: #f4f4f5; }
 .picker-dot { width: 14px; height: 14px; border-radius: 50%; }
+
+/* drag ux v3 */
+.clip { transition: box-shadow 0.15s ease; }
+.clip-row.dragging { cursor: grabbing; }
+.clip-row.dragging .clip { cursor: grabbing; }
+.clip-gap {
+  height: 100%; border-radius: 9px; flex-shrink: 0;
+  border: 2px dashed #a5a8f7; background: #eeeffe;
+}
+.clip.floating {
+  position: absolute; top: 3px; bottom: 3px; height: auto; z-index: 10;
+  pointer-events: none; opacity: 0.95; transform: scale(1.04);
+  box-shadow: 0 12px 32px rgba(15, 18, 28, 0.35);
+}
+.clip-edge { display: flex; align-items: center; justify-content: center; }
+.clip-edge.l { left: 0; border-left: none; }
+.clip-edge.r { right: 0; border-right: none; }
+.clip-edge i {
+  display: block; width: 4px; height: 22px; border-radius: 2px;
+  background: rgba(255, 255, 255, 0.65); opacity: 0; transition: opacity 0.12s;
+}
+.clip:hover .clip-edge i { opacity: 1; }

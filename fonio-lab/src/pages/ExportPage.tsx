@@ -1,19 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { MeshGradient } from '@paper-design/shaders-react'
+import gsap from 'gsap'
+import { Flip } from 'gsap/Flip'
 import { loadStates } from '../orbStates'
 // @ts-expect-error – shared JS engine (same file the renderer uses)
 import { paramsAt, stateNameAt, clipsToMarkers, AUTO_TRANSITIONS, DEFAULT_CLIP_DURATION } from '../engine/orbTimeline.mjs'
 
+gsap.registerPlugin(Flip)
+
 /**
- * Export-Tab V2 — Clip-Editor:
- * Zustände als Blöcke (Plus hängt an, Drag&Drop sortiert um, Kanten trimmen),
- * automatische Transitions als Balken über den Nahtstellen, Audio-Waveform
- * darunter. Preview + Renderer teilen sich dieselbe Engine (WYSIWYG).
+ * Export-Tab V3 — Clip-Editor mit echter Drag-UX:
+ * - Kante ziehen = trimmen (eigener Cursor, sichtbare Griffe)
+ * - Mitte ziehen = umsortieren: Clip hebt ab und folgt dem Zeiger,
+ *   die übrigen Clips weichen animiert aus (GSAP Flip) und zeigen die
+ *   Einfüge-Lücke live, bevor man loslässt.
  */
 
 type Clip = { id: number; state: string; duration: number }
-
 let nextId = 1
+
+type Drag = { idx: number; x: number; grabDX: number; insert: number; widthPct: number }
 
 export default function ExportPage() {
   const states = useMemo(loadStates, [])
@@ -33,12 +39,16 @@ export default function ExportPage() {
   const [audioBuf, setAudioBuf] = useState<AudioBuffer | null>(null)
   const [audioRms, setAudioRms] = useState<number[] | undefined>()
   const [renderMsg, setRenderMsg] = useState('')
+  const [drag, setDrag] = useState<Drag | null>(null)
 
   const audioEl = useRef<HTMLAudioElement | null>(null)
   const rowRef = useRef<HTMLDivElement | null>(null)
   const waveRef = useRef<HTMLCanvasElement | null>(null)
-  const dragFrom = useRef<number | null>(null)
   const resizing = useRef<{ idx: number; edge: 'l' | 'r'; startX: number; startDur: number } | null>(null)
+  const pendingDrag = useRef<{ idx: number; startX: number; grabDX: number; widthPct: number } | null>(null)
+  const flipState = useRef<ReturnType<typeof Flip.getState> | null>(null)
+  const dragRef = useRef<Drag | null>(null)
+  dragRef.current = drag
 
   const duration = Math.max(0.1, clips.reduce((s, c) => s + c.duration, 0))
   const job = useMemo(() => ({
@@ -63,29 +73,78 @@ export default function ExportPage() {
     setClips((c) => c.filter((_, i) => i !== idx))
     setSelected(null)
   }
-  const moveClip = (from: number, to: number) =>
-    setClips((c) => {
-      const arr = [...c]
-      const [m] = arr.splice(from, 1)
-      arr.splice(to > from ? to - 1 : to, 0, m)
-      return arr
-    })
 
-  // Trimmen über Kanten (beide Richtungen)
+  // ---------- Pointer-Interaktion: Trimmen + Umsortieren ----------
   useEffect(() => {
     const move = (e: PointerEvent) => {
+      // Trimmen
       const r = resizing.current
-      if (!r || !rowRef.current) return
-      const pxPerSec = rowRef.current.getBoundingClientRect().width / duration
-      const dSec = (e.clientX - r.startX) / pxPerSec
-      const nd = Math.max(0.4, Math.round((r.edge === 'r' ? r.startDur + dSec : r.startDur - dSec) * 10) / 10)
-      patchClip(r.idx, { duration: nd })
+      if (r && rowRef.current) {
+        const pxPerSec = rowRef.current.getBoundingClientRect().width / duration
+        const dSec = (e.clientX - r.startX) / pxPerSec
+        const nd = Math.max(0.4, Math.round((r.edge === 'r' ? r.startDur + dSec : r.startDur - dSec) * 10) / 10)
+        patchClip(r.idx, { duration: nd })
+        return
+      }
+      // Drag-Start erst nach Schwelle (unterscheidet Klick von Ziehen)
+      const pd = pendingDrag.current
+      if (pd && !dragRef.current && Math.abs(e.clientX - pd.startX) > 6) {
+        setDrag({ idx: pd.idx, x: e.clientX, grabDX: pd.grabDX, insert: pd.idx, widthPct: pd.widthPct })
+        return
+      }
+      // Laufendes Umsortieren: Einfüge-Index live berechnen
+      const d = dragRef.current
+      if (d && rowRef.current) {
+        const rect = rowRef.current.getBoundingClientRect()
+        const t = ((e.clientX - rect.left) / rect.width) * duration
+        const rest = clipsRefValue().filter((_, i) => i !== d.idx)
+        let acc = 0, insert = rest.length
+        for (let i = 0; i < rest.length; i++) {
+          if (t < acc + rest[i].duration / 2) { insert = i; break }
+          acc += rest[i].duration
+        }
+        if (insert !== d.insert) {
+          // FLIP: Zustand VOR der Umsortierung einfrieren, nach dem Re-Render animieren
+          flipState.current = Flip.getState(rowRef.current.querySelectorAll('[data-flip-id]'))
+          setDrag({ ...d, x: e.clientX, insert })
+        } else {
+          setDrag({ ...d, x: e.clientX })
+        }
+      }
     }
-    const up = () => { resizing.current = null }
+    const up = () => {
+      resizing.current = null
+      const d = dragRef.current
+      if (d) {
+        setClips((c) => {
+          const arr = [...c]
+          const [m] = arr.splice(d.idx, 1)
+          arr.splice(d.insert, 0, m)
+          return arr
+        })
+        setSelected(null)
+        setDrag(null)
+      } else if (pendingDrag.current) {
+        setSelected(pendingDrag.current.idx) // war nur ein Klick
+      }
+      pendingDrag.current = null
+    }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
     return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
   }, [duration])
+
+  const clipsRef = useRef(clips)
+  clipsRef.current = clips
+  const clipsRefValue = () => clipsRef.current
+
+  // Ausweich-Animation, sobald sich die Einfüge-Lücke ändert
+  useLayoutEffect(() => {
+    if (flipState.current) {
+      Flip.from(flipState.current, { duration: 0.22, ease: 'power2.out' })
+      flipState.current = null
+    }
+  }, [drag?.insert])
 
   // ---------- Audio ----------
   const onAudioFile = async (f: File) => {
@@ -114,7 +173,6 @@ export default function ExportPage() {
     ctx2.clearRect(0, 0, cv.width, cv.height)
     if (!audioBuf) return
     const ch = audioBuf.getChannelData(0)
-    // Waveform im Timeline-Maßstab: Audio kann kürzer/länger als Timeline sein
     const audioFrac = Math.min(1, audioBuf.duration / duration)
     const usableW = cv.width * audioFrac
     const per = Math.floor(ch.length / usableW)
@@ -164,7 +222,7 @@ export default function ExportPage() {
     } catch { return null }
   }, [playhead, job, states, fps, audioRms])
 
-  // ---------- Transitions (automatisch) für die Balken-Spur ----------
+  // ---------- Transition-Balken ----------
   const junctions = useMemo(() => {
     const out: { at: number; len: number; label: string }[] = []
     let t = 0
@@ -200,12 +258,22 @@ export default function ExportPage() {
   }
 
   const scrub = (e: React.MouseEvent) => {
-    if (!rowRef.current || !clips.length) return
+    if (!rowRef.current || !clips.length || drag) return
     const r = rowRef.current.getBoundingClientRect()
     setPlayhead(Math.max(0, Math.min(duration, ((e.clientX - r.left) / r.width) * duration)))
   }
 
   const sel = selected !== null ? clips[selected] : null
+
+  // Renderliste beim Ziehen: Rest-Clips + Lücke am Einfüge-Index
+  const renderList: (Clip | 'gap')[] = useMemo(() => {
+    if (!drag) return clips
+    const rest: (Clip | 'gap')[] = clips.filter((_, i) => i !== drag.idx)
+    rest.splice(drag.insert, 0, 'gap')
+    return rest
+  }, [clips, drag])
+
+  const rowRect = rowRef.current?.getBoundingClientRect()
 
   return (
     <main className="page export-page">
@@ -229,11 +297,10 @@ export default function ExportPage() {
           <span className="tl-time">{playhead.toFixed(1)}s / {duration.toFixed(1)}s</span>
         </div>
 
-        {/* Transition-Spur (Balken über den Nahtstellen, automatische Werte) */}
         <div className="trans-row">
-          {junctions.map((j, i) => (
+          {!drag && junctions.map((j, i) => (
             <div key={i} className="trans-bar has-tip"
-              data-tip={`Automatische Transition: ${j.label} — Werte werden später als Standard festgeschrieben.`}
+              data-tip={`Automatische Transition: ${j.label} — wird später als Standard festgeschrieben.`}
               style={{
                 left: `calc(${((j.at - j.len / 2) / duration) * 100}%)`,
                 width: `${(j.len / duration) * 100}%`,
@@ -243,30 +310,43 @@ export default function ExportPage() {
           ))}
         </div>
 
-        {/* Zustands-Spur: Clips + Plus */}
         <div className="clip-row-wrap">
-          <div className="clip-row" ref={rowRef} onClick={scrub}>
-            {clips.map((c, i) => (
-              <div key={c.id}
-                className={selected === i ? 'clip selected' : 'clip'}
-                style={{ width: `${(c.duration / duration) * 100}%`, background: stateColor(c.state) }}
-                draggable
-                onDragStart={() => { dragFrom.current = i }}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => { e.preventDefault(); if (dragFrom.current !== null) moveClip(dragFrom.current, i); dragFrom.current = null }}
-                onClick={(e) => { e.stopPropagation(); setSelected(i) }}>
-                <span className="clip-edge l" onPointerDown={(e) => { e.stopPropagation(); resizing.current = { idx: i, edge: 'l', startX: e.clientX, startDur: c.duration } }} />
-                <span className="clip-label">{states[c.state]?.label ?? c.state}</span>
-                <span className="clip-dur">{c.duration.toFixed(1)}s</span>
-                <button className="clip-x" onClick={(e) => { e.stopPropagation(); deleteClip(i) }}>×</button>
-                <span className="clip-edge r" onPointerDown={(e) => { e.stopPropagation(); resizing.current = { idx: i, edge: 'r', startX: e.clientX, startDur: c.duration } }} />
+          <div className={drag ? 'clip-row dragging' : 'clip-row'} ref={rowRef} onClick={scrub}>
+            {renderList.map((c, i) =>
+              c === 'gap' ? (
+                <div key="gap" data-flip-id="gap" className="clip-gap" style={{ width: `${drag!.widthPct}%` }} />
+              ) : (
+                <div key={c.id} data-flip-id={c.id}
+                  className={selected === clips.indexOf(c) && !drag ? 'clip selected' : 'clip'}
+                  style={{ width: `${(c.duration / duration) * 100}%`, background: stateColor(c.state) }}
+                  onPointerDown={(e) => {
+                    const idx = clips.indexOf(c)
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                    pendingDrag.current = { idx, startX: e.clientX, grabDX: e.clientX - rect.left, widthPct: (c.duration / duration) * 100 }
+                  }}
+                  onClick={(e) => e.stopPropagation()}>
+                  <span className="clip-edge l" onPointerDown={(e) => { e.stopPropagation(); resizing.current = { idx: clips.indexOf(c), edge: 'l', startX: e.clientX, startDur: c.duration } }}><i /></span>
+                  <span className="clip-label">{states[c.state]?.label ?? c.state}</span>
+                  <span className="clip-dur">{c.duration.toFixed(1)}s</span>
+                  <button className="clip-x" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); deleteClip(clips.indexOf(c)) }}>×</button>
+                  <span className="clip-edge r" onPointerDown={(e) => { e.stopPropagation(); resizing.current = { idx: clips.indexOf(c), edge: 'r', startX: e.clientX, startDur: c.duration } }}><i /></span>
+                </div>
+              ),
+            )}
+            {clips.length > 0 && !drag && <div className="tl-playhead" style={{ left: `${(playhead / duration) * 100}%` }} />}
+            {/* Der schwebende Clip folgt dem Zeiger */}
+            {drag && rowRect && (
+              <div className="clip floating" style={{
+                width: `${drag.widthPct}%`,
+                background: stateColor(clips[drag.idx].state),
+                left: Math.max(0, Math.min(rowRect.width * (1 - drag.widthPct / 100), drag.x - rowRect.left - drag.grabDX)),
+              }}>
+                <span className="clip-label">{states[clips[drag.idx].state]?.label}</span>
+                <span className="clip-dur">{clips[drag.idx].duration.toFixed(1)}s</span>
               </div>
-            ))}
-            {clips.length > 0 && <div className="tl-playhead" style={{ left: `${(playhead / duration) * 100}%` }} />}
+            )}
           </div>
-          <div className="plus-wrap"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => { e.preventDefault(); if (dragFrom.current !== null) moveClip(dragFrom.current, clips.length); dragFrom.current = null }}>
+          <div className="plus-wrap">
             <button className="plus-btn" onClick={() => setPickerOpen(!pickerOpen)}>＋</button>
             {pickerOpen && (
               <div className="state-picker">
@@ -281,9 +361,8 @@ export default function ExportPage() {
           </div>
         </div>
 
-        {/* Audio-Spur */}
         <canvas ref={waveRef} className="tl-wave" width={1100} height={64} />
-        <p className="control-hint">＋ = Zustand anhängen · Block ziehen = umsortieren · Kanten ziehen = Dauer trimmen · Klick auf Spur = spulen</p>
+        <p className="control-hint">＋ = Zustand anhängen · Mitte ziehen = umsortieren (Clips weichen live aus) · Kante ziehen = Dauer trimmen · Klick = auswählen/spulen</p>
       </div>
 
       <aside className="controls">
@@ -297,7 +376,7 @@ export default function ExportPage() {
             <select className="edit-select" value={sel.state} onChange={(e) => patchClip(selected!, { state: e.target.value })}>
               {Object.keys(states).map((k) => <option key={k} value={k}>{states[k].label}</option>)}
             </select>
-            <label className="control has-tip" data-tip="Dauer dieses Blocks in Sekunden — geht auch per Kanten-Ziehen direkt am Block.">
+            <label className="control has-tip" data-tip="Dauer dieses Blocks — geht auch per Kanten-Ziehen direkt am Block.">
               <span className="control-label"><span>Dauer</span><span>{sel.duration.toFixed(1)}s</span></span>
               <input type="range" min={0.4} max={15} step={0.1} value={sel.duration}
                 onChange={(e) => patchClip(selected!, { duration: Number(e.target.value) })} />
