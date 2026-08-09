@@ -104,6 +104,14 @@ export default function OrbPage() {
   const [stateDraft, setStateDraft] = useState<StateParams>(() => loadStates().idle.p)
   const [dirty, setDirty] = useState(false)
   const rotorRef = useRef<HTMLDivElement | null>(null)
+  const [micOn, setMicOn] = useState(false)
+  const [voicePlaying, setVoicePlaying] = useState(false)
+  const [level, setLevel] = useState(0)
+  const analyser = useRef<AnalyserNode | null>(null)
+  const audioCtx = useRef<AudioContext | null>(null)
+  const micStream = useRef<MediaStream | null>(null)
+  const voiceEl = useRef<HTMLAudioElement | null>(null)
+  const voiceConnected = useRef(false)
   const [savedMsg, setSavedMsg] = useState('')
 
   const isPg = target === 'playground'
@@ -126,6 +134,65 @@ export default function OrbPage() {
     setSavedMsg('Gespeichert ✓')
     setTimeout(() => setSavedMsg(''), 2000)
   }
+
+  // ---------- Stimme im Editor: Mikrofon + Demo, Pegel treibt die Preview ----------
+  const ensureAudioCtx = () => {
+    if (!audioCtx.current) {
+      audioCtx.current = new AudioContext()
+      analyser.current = audioCtx.current.createAnalyser()
+      analyser.current.fftSize = 512
+    }
+    void audioCtx.current.resume()
+  }
+  const toggleMic = async () => {
+    if (micOn) {
+      micStream.current?.getTracks().forEach((t) => t.stop())
+      micStream.current = null
+      setMicOn(false)
+      return
+    }
+    try {
+      ensureAudioCtx()
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      micStream.current = stream
+      audioCtx.current!.createMediaStreamSource(stream).connect(analyser.current!)
+      setMicOn(true)
+    } catch { alert('Mikrofon-Zugriff abgelehnt.') }
+  }
+  const toggleVoice = () => {
+    const el = voiceEl.current
+    if (!el) return
+    if (voicePlaying) { el.pause(); setVoicePlaying(false); return }
+    ensureAudioCtx()
+    if (!voiceConnected.current) {
+      const src = audioCtx.current!.createMediaElementSource(el)
+      src.connect(analyser.current!)
+      analyser.current!.connect(audioCtx.current!.destination)
+      voiceConnected.current = true
+    }
+    el.currentTime = 0
+    el.loop = true
+    void el.play().catch(() => {})
+    setVoicePlaying(true)
+  }
+  useEffect(() => {
+    let raf = 0
+    let lastRender = 0
+    const data = new Uint8Array(256)
+    const tick = (now: number) => {
+      if (analyser.current && (micStream.current || voicePlaying)) {
+        analyser.current.getByteTimeDomainData(data)
+        let sum = 0
+        for (let i = 0; i < data.length; i++) { const d = (data[i] - 128) / 128; sum += d * d }
+        const lvl = Math.min(1, Math.sqrt(sum / data.length) * 4)
+        if (now - lastRender > 33) { lastRender = now; setLevel(lvl) }
+      } else if (level !== 0 && now - lastRender > 200) { lastRender = now; setLevel(0) }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voicePlaying])
 
   // continuous rotation (deg/s), negative = counterclockwise.
   // Applied as a direct DOM transform every frame — no React re-renders, no jank.
@@ -174,7 +241,7 @@ export default function OrbPage() {
   return (
     <main className="page">
       <div className="orb-stage">
-        <div className="orb" style={isPg ? undefined : { transform: `translateX(${stateDraft.offsetX * 260}px) scale(${stateDraft.scale})` }}>
+        <div className="orb" style={isPg ? undefined : { transform: `translateX(${stateDraft.offsetX * 260}px) scale(${stateDraft.scale + (['listening', 'speaking'].includes(target) ? level * 0.22 : 0)})` }}>
           <div className="orb-rotor" ref={rotorRef}>
           {isPg ? (
             <>
@@ -359,6 +426,14 @@ export default function OrbPage() {
             <Slider label="Soften (Weiß)" hint="Pastell-Regler." value={stateDraft.soften} min={0} max={0.8} onChange={(v) => patchState({ soften: v })} />
             <Slider label="Versatz X" hint="Schiebt den Orb horizontal — z. B. für Durchstellen." value={stateDraft.offsetX} min={-1} max={1} onChange={(v) => patchState({ offsetX: v })} />
             <Slider label="Drehung (°/s)" hint="Kontinuierliche Rotation dieses Zustands. Plus = Uhrzeigersinn, Minus = dagegen, 0 = aus." value={stateDraft.rotationSpeed} min={-120} max={120} step={1} onChange={(v) => patchState({ rotationSpeed: v })} />
+            <div className="control has-tip" data-tip="Zum Beurteilen der Stimm-Reaktion beim Tunen: Mikrofon = deine Stimme, Demo = Lenas Stimme. Wirkt in den Zuständen Zuhören und Sprechen auf die Preview.">
+              <span className="control-label"><span>Stimme (Test)</span></span>
+              <div className="seg">
+                <button className={micOn ? 'seg-btn active' : 'seg-btn'} onClick={toggleMic}>{micOn ? 'Mikrofon aus' : 'Mikrofon an'}</button>
+                <button className={voicePlaying ? 'seg-btn active' : 'seg-btn'} onClick={toggleVoice}>{voicePlaying ? 'Demo stoppen' : 'Lena spricht (Demo)'}</button>
+              </div>
+              <div className="level-track"><div className="level-fill" style={{ width: `${Math.round(level * 100)}%` }} /></div>
+            </div>
           </>
         )}
 
@@ -368,6 +443,7 @@ export default function OrbPage() {
             : `Du bearbeitest den Zustand „${DEFAULT_STATES[target].label}". „Speichern" übernimmt ihn — die Zustände-Seite (Preview) nutzt ihn dann sofort.`}
         </p>
       </aside>
+      <audio ref={voiceEl} src="/demo.wav" preload="auto" />
     </main>
   )
 }
