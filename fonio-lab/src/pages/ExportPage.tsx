@@ -45,6 +45,8 @@ type Frame = {
   rotationSpeed: number; shaderFrame: number; rotationDeg: number
 }
 
+/** Nur diese Zustände hören auf die Stimme (gleiche Liste wie in der Engine). */
+const VOICE_STATES = new Set(['listening', 'speaking'])
 const SPEEDS = [0.25, 0.5, 1, 2]
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 /** Seitenversatz proportional zum Renderer: dort 260px bei 480px Orb, hier 280px. */
@@ -101,7 +103,9 @@ export default function ExportPage() {
   const [speed, setSpeed] = useState(1)
   const [audioName, setAudioName] = useState('')
   const [audioBuf, setAudioBuf] = useState<AudioBuffer | null>(null)
-  const [audioRms, setAudioRms] = useState<number[] | undefined>()
+  const [rawRms, setRawRms] = useState<number[] | undefined>()
+  const [autoGain, setAutoGain] = useState(1)
+  const [sens, setSens] = useState(1)
   const [renderMsg, setRenderMsg] = useState('')
   const [drag, setDrag] = useState<Drag | null>(null)
   const [laneW, setLaneW] = useState(1000)
@@ -115,6 +119,11 @@ export default function ExportPage() {
   const dragRef = useRef<Drag | null>(null)
   dragRef.current = drag
   const scrubbing = useRef(false)
+
+  // Roh-Pegel × automatischer Ausgleich × Empfindlichkeit
+  const audioRms = useMemo(
+    () => rawRms?.map((r) => Math.min(1, r * autoGain * sens)),
+    [rawRms, autoGain, sens])
 
   const duration = Math.max(0.1, clips.reduce((s, c) => s + c.duration, 0))
   const totalFrames = Math.max(1, Math.round(duration * fps))
@@ -381,9 +390,15 @@ export default function ExportPage() {
     for (let i = 0; i < frames; i++) {
       let sum = 0, n = 0
       for (let s = Math.floor(i * per); s < Math.min(ch.length, Math.floor((i + 1) * per)); s++) { sum += ch[s] * ch[s]; n++ }
-      rms.push(n ? Math.min(1, Math.sqrt(sum / n) * 3.2) : 0)
+      rms.push(n ? Math.sqrt(sum / n) : 0)
     }
-    setAudioRms(rms)
+    // Pegel automatisch anpassen: ein fester Faktor setzt einen normalisierten
+    // Take voraus. Eine ganz normale Aufnahme ist schnell 18 dB leiser — dann
+    // bleibt die Hüllkurve bei 0.06 statt 0.5 und der Orb rührt sich nicht.
+    const sorted = [...rms].sort((a, b) => a - b)
+    const p95 = sorted[Math.floor(sorted.length * 0.95)] || 0.001
+    setAutoGain(clamp(0.9 / p95, 0.5, 40))
+    setRawRms(rms)
     void ctx.close()
   }
 
@@ -512,6 +527,7 @@ export default function ExportPage() {
   const hasClips = clips.length > 0
 
   const off = !hasClips
+  const reactiveClips = clips.filter((c) => VOICE_STATES.has(c.state)).length
 
   return (
     <main className="page export-page">
@@ -610,7 +626,10 @@ export default function ExportPage() {
                     }}
                     onClick={(e) => e.stopPropagation()}>
                     <span className="clip-edge l" onPointerDown={(e) => { e.stopPropagation(); commit(); resizing.current ={ idx: clips.indexOf(c), edge: 'l', startX: e.clientX, startDur: c.duration } }}><i /></span>
-                    <span className="clip-label">{stateLabel(c.state)}</span>
+                    <span className="clip-label">
+                      {stateLabel(c.state)}
+                      {rawRms && VOICE_STATES.has(c.state) && <i className="clip-voice" title="reagiert auf die Stimme">∿</i>}
+                    </span>
                     <span className="clip-dur">{c.duration.toFixed(1)}s</span>
                     <button className="clip-x" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); deleteClip(clips.indexOf(c)) }}>×</button>
                     <span className="clip-edge r" onPointerDown={(e) => { e.stopPropagation(); commit(); resizing.current ={ idx: clips.indexOf(c), edge: 'r', startX: e.clientX, startDur: c.duration } }}><i /></span>
@@ -693,9 +712,24 @@ export default function ExportPage() {
           </p>
         </div>
 
-        <div className="control has-tip" data-tip="Voice-Take laden: Waveform erscheint unter der Spur, Reaktivität wird beim Export eingebacken.">
+        <div className="control has-tip" data-tip="Voice-Take laden: Waveform erscheint unter der Spur, Reaktivität wird beim Export eingebacken. Der Pegel wird automatisch angeglichen — eine leise Aufnahme wirkt sonst so, als würde der Orb gar nicht reagieren.">
           <span className="control-label"><span>Audio</span><span>{audioName || '—'}</span></span>
           <input type="file" accept="audio/*" onChange={(e) => e.target.files?.[0] && void onAudioFile(e.target.files[0])} />
+          {rawRms && (
+            <>
+              <p className="control-hint" style={{ marginTop: 6 }}>
+                Pegel automatisch ×{autoGain.toFixed(1)} angeglichen
+                {reactiveClips === 0
+                  ? ' · ⚠ kein Block reagiert: die Stimme wirkt nur in „Zuhören" und „Sprechen"'
+                  : ` · ${reactiveClips} von ${clips.length} Blöcken reagieren`}
+              </p>
+              <label className="control has-tip" data-tip="Feinjustierung über den automatischen Ausgleich hinaus. 1.0 = so, wie der Automatik-Wert es vorgibt.">
+                <span className="control-label"><span>Empfindlichkeit</span><span>{sens.toFixed(2)}</span></span>
+                <input type="range" min={0.2} max={3} step={0.05} value={sens}
+                  onChange={(e) => setSens(Number(e.target.value))} />
+              </label>
+            </>
+          )}
         </div>
 
         <div className="control has-tip" data-tip="Wie die Stimme den Orb bewegt — wirkt in den Zuständen Zuhören und Sprechen, live in der Vorschau und identisch im Export. Die Größe der Kugel bleibt immer unberührt.">

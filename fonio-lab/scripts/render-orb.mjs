@@ -57,9 +57,15 @@ function wavRmsPerFrame(path, frames, fps) {
     if (s0 >= samples) break
     let sum = 0, n = 0
     for (let s = s0; s < s1; s++) { const v = buf.readInt16LE(dataOff + s * 2 * fmt.channels) / 32768; sum += v * v; n++ }
-    rms[f] = n ? Math.min(1, Math.sqrt(sum / n) * 3.2) : 0
+    rms[f] = n ? Math.sqrt(sum / n) : 0
   }
-  return rms
+  // Pegel angleichen wie im Lab — ein fester Faktor setzt einen normalisierten
+  // Take voraus, eine leise Aufnahme würde den Orb sonst kaum bewegen.
+  const sorted = [...rms].sort((a, b) => a - b)
+  const p95 = sorted[Math.floor(sorted.length * 0.95)] || 0.001
+  const gain = Math.max(0.5, Math.min(40, 0.9 / p95))
+  console.log(`Audio-Pegel automatisch ×${gain.toFixed(1)} angeglichen`)
+  return rms.map((r) => Math.min(1, r * gain))
 }
 const FRAMES = Math.round(job.duration * job.fps)
 if (!job.audioRms && args.audio) job.audioRms = wavRmsPerFrame(resolve(ROOT, args.audio), FRAMES, job.fps)

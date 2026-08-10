@@ -482,7 +482,11 @@ input[type='file'] { font: 400 13px 'Geist', system-ui, sans-serif; }
   color: #fff; cursor: grab; overflow: hidden; opacity: 0.92;
 }
 .clip.selected { outline: 3px solid #0f0f16; outline-offset: -3px; }
-.clip-label { font: 600 13px 'Geist', system-ui, sans-serif; text-shadow: 0 1px 4px rgba(0,0,0,0.25); pointer-events: none; }
+.clip-label {
+  font: 600 13px 'Geist', system-ui, sans-serif; text-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  pointer-events: none; display: flex; align-items: center; gap: 6px;
+}
+.clip-voice { font-style: normal; font-size: 15px; opacity: 0.8; line-height: 1; }
 .clip-dur { font: 500 10px 'Geist', system-ui, sans-serif; opacity: 0.85; pointer-events: none; }
 .clip-x {
   position: absolute; top: 3px; right: 6px; border: none; background: rgba(0,0,0,0.25);
