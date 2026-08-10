@@ -312,7 +312,7 @@ export default function ExportPage() {
 
         <div className="clip-row-wrap">
           <div className={drag ? 'clip-row dragging' : 'clip-row'} ref={rowRef} onClick={scrub}>
-            {renderList.map((c, i) =>
+            {renderList.map((c) =>
               c === 'gap' ? (
                 <div key="gap" data-flip-id="gap" className="clip-gap" style={{ width: `${drag!.widthPct}%` }} />
               ) : (

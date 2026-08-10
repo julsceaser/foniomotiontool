@@ -17,9 +17,10 @@ export type StateParams = {
 export type StateDef = { label: string; hint: string; p: StateParams }
 
 const W = '#FFFFFF'
-const BLUE = '#585DFE'
-const CYAN = '#58E8FE'
-const MINT = '#58FE85'
+// Grundfarben — exportiert als Referenz für andere Seiten (Wave, Presets)
+export const BLUE = '#585DFE'
+export const CYAN = '#58E8FE'
+export const MINT = '#58FE85'
 
 export const STATES_LS_KEY = 'fonio-orb-states-v2' // v2: Pastell-Orb-Töne als Default für alle Zustände
 

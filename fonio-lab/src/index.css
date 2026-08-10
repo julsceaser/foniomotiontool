@@ -208,6 +208,15 @@ input[type='range'] {
   font-variant-numeric: tabular-nums;
 }
 
+.section-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  margin: 0.5rem 0 -0.5rem;
+}
+
 .control-hint {
   font-size: 0.78rem;
   color: var(--muted-foreground);
@@ -217,8 +226,19 @@ input[type='range'] {
 
 /* ---------- wave ---------- */
 
+/* Eigener Container statt .orb-stage (fix 560px): nimmt den Platz NEBEN den
+   Settings ein und schrumpft die Welle, statt sie darunter laufen zu lassen. */
+.wave-stage {
+  flex: 1 1 560px;
+  min-width: 320px;
+  max-width: 980px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .wave-wrap {
-  width: min(1080px, 92vw);
+  width: 100%;
 }
 
 .wave-card {
@@ -329,7 +349,13 @@ input[type='range'] {
   position: absolute; inset: 10% 5%; border-radius: 50%;
   background: #eeeffe; filter: blur(90px); opacity: 0.7;
 }
-.wave-canvas { position: relative; }
+.wave-canvas {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 920 / 420; /* interne Zeichenauflösung bleibt 920×420, CSS skaliert nur */
+}
 
 /* rotor: rotates the shader canvas at full frame rate via direct DOM transform.
    Oversized (inset -22%) so the square canvas never shows gaps in the round mask. */
