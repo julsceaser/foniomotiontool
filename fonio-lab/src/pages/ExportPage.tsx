@@ -2,18 +2,19 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { MeshGradient } from '@paper-design/shaders-react'
 import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
-import { loadStates } from '../orbStates'
+import { loadStates, STATE_UI_COLORS, UI_COLOR_FALLBACK } from '../orbStates'
 // @ts-expect-error – shared JS engine (same file the renderer uses)
-import { paramsAt, stateNameAt, clipsToMarkers, AUTO_TRANSITIONS, DEFAULT_CLIP_DURATION } from '../engine/orbTimeline.mjs'
+import { buildFrames, clipsToMarkers, AUTO_TRANSITIONS, DEFAULT_CLIP_DURATION } from '../engine/orbTimeline.mjs'
 
 gsap.registerPlugin(Flip)
 
 /**
- * Export-Tab V3 — Clip-Editor mit echter Drag-UX:
- * - Kante ziehen = trimmen (eigener Cursor, sichtbare Griffe)
- * - Mitte ziehen = umsortieren: Clip hebt ab und folgt dem Zeiger,
- *   die übrigen Clips weichen animiert aus (GSAP Flip) und zeigen die
- *   Einfüge-Lücke live, bevor man loslässt.
+ * Export-Tab V4 — Clip-Editor mit vollständiger Transportsteuerung:
+ * - Zeitlineal mit Sekunden-Ticks, Playhead über alle Spuren, ziehbar + anklickbar
+ * - Transport: Anfang · Clipgrenze · Frame · Play/Pause · Stop · Frame · Clipgrenze · Ende
+ * - Tastenkürzel (Leertaste, Pfeile, Shift/Alt+Pfeile, Home/End, Entf)
+ * - Abspielgeschwindigkeit, framegenaue Anzeige, Snapping an Clipgrenzen
+ * Drag-UX aus V3 bleibt: Kante ziehen = trimmen, Mitte ziehen = umsortieren (GSAP Flip).
  */
 
 type Clip = { id: number; state: string; duration: number }
@@ -21,25 +22,54 @@ let nextId = 1
 
 type Drag = { idx: number; x: number; grabDX: number; insert: number; widthPct: number }
 
+/** Ein fertig gerechnetes Bild aus der Engine — identisch mit dem, was der Renderer schießt. */
+type Frame = {
+  colors: string[]; speed: number; distortion: number; swirl: number
+  grainMixer: number; scale: number; soften: number; offsetX: number
+  rotationSpeed: number; shaderFrame: number; rotationDeg: number
+}
+
+const SPEEDS = [0.25, 0.5, 1, 2]
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+
+/** Auto-Sicherung: die Clip-Arbeit darf einen Reload nicht überleben müssen. */
+const TL_LS_KEY = 'fonio-timeline-v1'
+type SavedTimeline = { clips: Clip[]; fps: number; size: number; loop: boolean; name: string }
+const loadTimeline = (): SavedTimeline | null => {
+  try {
+    const raw = localStorage.getItem(TL_LS_KEY)
+    if (!raw) return null
+    const d = JSON.parse(raw)
+    if (!Array.isArray(d?.clips)) return null
+    nextId = Math.max(1, ...d.clips.map((c: Clip) => (c.id ?? 0) + 1))
+    return d
+  } catch { return null }
+}
+const SAVED = typeof localStorage !== 'undefined' ? loadTimeline() : null
+
 export default function ExportPage() {
   const states = useMemo(loadStates, [])
-  const stateColor = (k: string) =>
-    states[k]?.p.colors.find((c: string) => c.toUpperCase() !== '#FFFFFF') ?? '#A1A1AA'
+  const stateColor = (k: string) => STATE_UI_COLORS[k] ?? UI_COLOR_FALLBACK
+  const stateLabel = (k: string) => states[k]?.label ?? k
 
-  const [clips, setClips] = useState<Clip[]>([])
+  const [clips, setClips] = useState<Clip[]>(SAVED?.clips ?? [])
   const [selected, setSelected] = useState<number | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [fps, setFps] = useState(30)
-  const [size, setSize] = useState(480)
-  const [loop, setLoop] = useState(true)
-  const [name, setName] = useState('meine-timeline')
+  const [fps, setFps] = useState(SAVED?.fps ?? 30)
+  const [size, setSize] = useState(SAVED?.size ?? 480)
+  const [loop, setLoop] = useState(SAVED?.loop ?? true)
+  const [name, setName] = useState(SAVED?.name ?? 'meine-timeline')
+  const [past, setPast] = useState<Clip[][]>([])
+  const [future, setFuture] = useState<Clip[][]>([])
   const [playhead, setPlayhead] = useState(0)
   const [playing, setPlaying] = useState(false)
+  const [speed, setSpeed] = useState(1)
   const [audioName, setAudioName] = useState('')
   const [audioBuf, setAudioBuf] = useState<AudioBuffer | null>(null)
   const [audioRms, setAudioRms] = useState<number[] | undefined>()
   const [renderMsg, setRenderMsg] = useState('')
   const [drag, setDrag] = useState<Drag | null>(null)
+  const [laneW, setLaneW] = useState(1000)
 
   const audioEl = useRef<HTMLAudioElement | null>(null)
   const rowRef = useRef<HTMLDivElement | null>(null)
@@ -49,8 +79,12 @@ export default function ExportPage() {
   const flipState = useRef<ReturnType<typeof Flip.getState> | null>(null)
   const dragRef = useRef<Drag | null>(null)
   dragRef.current = drag
+  const scrubbing = useRef(false)
 
   const duration = Math.max(0.1, clips.reduce((s, c) => s + c.duration, 0))
+  const totalFrames = Math.max(1, Math.round(duration * fps))
+  const curFrame = clamp(Math.round(playhead * fps), 0, totalFrames - 1)
+
   const job = useMemo(() => ({
     duration, fps, loop,
     markers: clips.length ? clipsToMarkers(clips) : [{ time: 0, state: 'idle' }],
@@ -60,9 +94,33 @@ export default function ExportPage() {
   jobRef.current = job
   const playRef = useRef(playing)
   playRef.current = playing
+  const speedRef = useRef(speed)
+  speedRef.current = speed
+  const fpsRef = useRef(fps)
+  fpsRef.current = fps
 
-  // ---------- Clips ----------
+  // ---------- Clips + Verlauf (Rückgängig/Wiederherstellen) ----------
+  const snapshot = () => clipsRefValue().map((c) => ({ ...c }))
+  const commit = () => { setPast((p) => [...p.slice(-49), snapshot()]); setFuture([]) }
+  const commitRef = useRef(commit)
+  commitRef.current = commit
+  const undo = () => {
+    if (!past.length) return
+    setFuture((f) => [snapshot(), ...f])
+    setClips(past[past.length - 1])
+    setPast((p) => p.slice(0, -1))
+    setSelected(null)
+  }
+  const redo = () => {
+    if (!future.length) return
+    setPast((p) => [...p, snapshot()])
+    setClips(future[0])
+    setFuture((f) => f.slice(1))
+    setSelected(null)
+  }
+
   const addClip = (state: string) => {
+    commit()
     const dur = (DEFAULT_CLIP_DURATION as Record<string, number>)[state] ?? DEFAULT_CLIP_DURATION._default
     setClips((c) => [...c, { id: nextId++, state, duration: dur }])
     setPickerOpen(false)
@@ -70,29 +128,149 @@ export default function ExportPage() {
   const patchClip = (idx: number, p: Partial<Clip>) =>
     setClips((c) => c.map((x, i) => (i === idx ? { ...x, ...p } : x)))
   const deleteClip = (idx: number) => {
+    commit()
     setClips((c) => c.filter((_, i) => i !== idx))
     setSelected(null)
   }
+  const clearAll = () => { commit(); setClips([]); setSelected(null); setPlayhead(0) }
+
+  // Auto-Sicherung nach jeder Änderung
+  useEffect(() => {
+    try { localStorage.setItem(TL_LS_KEY, JSON.stringify({ clips, fps, size, loop, name })) } catch { /* voll */ }
+  }, [clips, fps, size, loop, name])
+
+  // ---------- Transport ----------
+  const pause = () => {
+    setPlaying(false)
+    audioEl.current?.pause()
+  }
+  const seekSec = (t: number) => {
+    const v = clamp(t, 0, duration)
+    setPlayhead(v)
+    if (audioEl.current?.src) audioEl.current.currentTime = Math.min(v, audioEl.current.duration || v)
+  }
+  const seekFrame = (f: number) => seekSec(clamp(f, 0, totalFrames - 1) / fps)
+  const togglePlay = () => {
+    const next = !playing
+    setPlaying(next)
+    const el = audioEl.current
+    if (el && el.src) {
+      if (next) { el.currentTime = playhead; el.playbackRate = speed; void el.play().catch(() => {}) }
+      else el.pause()
+    }
+  }
+  const stop = () => { pause(); seekSec(0) }
+  const stepFrames = (d: number) => { pause(); seekFrame(curFrame + d) }
+  const toStart = () => { pause(); seekFrame(0) }
+  const toEnd = () => { pause(); seekFrame(totalFrames - 1) }
+
+  // Clipgrenzen (Start jedes Clips + Ende der Timeline)
+  const boundaries = useMemo(() => {
+    const out = [0]
+    let t = 0
+    for (const c of clips) { t += c.duration; out.push(Math.round(t * 1000) / 1000) }
+    return out
+  }, [clips])
+  const toPrevBoundary = () => {
+    pause()
+    const prev = [...boundaries].reverse().find((b) => b < playhead - 0.02)
+    seekSec(prev ?? 0)
+  }
+  const toNextBoundary = () => {
+    pause()
+    const next = boundaries.find((b) => b > playhead + 0.02)
+    seekSec(next ?? duration)
+  }
+
+  // Playhead nie hinter das Ende laufen lassen, wenn Clips kürzer werden
+  useEffect(() => { setPlayhead((p) => Math.min(p, Math.max(0, duration - 1 / fps))) }, [duration, fps])
+  useEffect(() => { if (audioEl.current) audioEl.current.playbackRate = speed }, [speed])
+
+  // ---------- Scrubbing (Lineal, Playhead-Griff, Waveform) ----------
+  const timeFromX = (clientX: number, free: boolean) => {
+    const r = rowRef.current?.getBoundingClientRect()
+    if (!r) return 0
+    const t = clamp(((clientX - r.left) / r.width) * duration, 0, duration)
+    if (free) return t
+    const snapSec = (10 / Math.max(1, r.width)) * duration // ~10px Fangbereich
+    const near = boundaries.find((b) => Math.abs(b - t) < snapSec)
+    return near ?? t
+  }
+  const timeFromXRef = useRef(timeFromX)
+  timeFromXRef.current = timeFromX
+
+  const beginScrub = (e: React.PointerEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    scrubbing.current = true
+    pause()
+    seekSec(timeFromX(e.clientX, e.altKey))
+  }
+  useEffect(() => {
+    const move = (e: PointerEvent) => {
+      if (!scrubbing.current) return
+      const t = timeFromXRef.current(e.clientX, e.altKey)
+      setPlayhead(t)
+      if (audioEl.current?.src) audioEl.current.currentTime = Math.min(t, audioEl.current.duration || t)
+    }
+    const up = () => { scrubbing.current = false }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
+  }, [])
+
+  // ---------- Tastenkürzel ----------
+  const actions = useRef<Record<string, (...a: never[]) => void>>({})
+  actions.current = {
+    togglePlay, stop, toStart, toEnd, toPrevBoundary, toNextBoundary,
+    stepBack: () => stepFrames(-1), stepFwd: () => stepFrames(1),
+    jumpBack: () => stepFrames(-10), jumpFwd: () => stepFrames(10),
+    del: () => { if (selected !== null) deleteClip(selected) },
+    undo, redo,
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      if (el && /^(input|textarea|select)$/i.test(el.tagName)) return
+      const a = actions.current
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        ;(e.shiftKey ? a.redo : a.undo)()
+        return
+      }
+      switch (e.key) {
+        case ' ': e.preventDefault(); a.togglePlay(); break
+        case 'ArrowLeft': e.preventDefault(); (e.altKey ? a.toPrevBoundary : e.shiftKey ? a.jumpBack : a.stepBack)(); break
+        case 'ArrowRight': e.preventDefault(); (e.altKey ? a.toNextBoundary : e.shiftKey ? a.jumpFwd : a.stepFwd)(); break
+        case 'Home': e.preventDefault(); a.toStart(); break
+        case 'End': e.preventDefault(); a.toEnd(); break
+        case 'Delete': case 'Backspace': e.preventDefault(); a.del(); break
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // ---------- Pointer-Interaktion: Trimmen + Umsortieren ----------
   useEffect(() => {
     const move = (e: PointerEvent) => {
-      // Trimmen
       const r = resizing.current
       if (r && rowRef.current) {
         const pxPerSec = rowRef.current.getBoundingClientRect().width / duration
         const dSec = (e.clientX - r.startX) / pxPerSec
-        const nd = Math.max(0.4, Math.round((r.edge === 'r' ? r.startDur + dSec : r.startDur - dSec) * 10) / 10)
+        // auf ganze Bilder rasten — sonst liegen Clipgrenzen zwischen zwei Frames
+        const f = fpsRef.current
+        const raw = r.edge === 'r' ? r.startDur + dSec : r.startDur - dSec
+        const nd = Math.max(Math.round(0.4 * f) / f, Math.round(raw * f) / f)
         patchClip(r.idx, { duration: nd })
         return
       }
-      // Drag-Start erst nach Schwelle (unterscheidet Klick von Ziehen)
       const pd = pendingDrag.current
       if (pd && !dragRef.current && Math.abs(e.clientX - pd.startX) > 6) {
+        commitRef.current()
         setDrag({ idx: pd.idx, x: e.clientX, grabDX: pd.grabDX, insert: pd.idx, widthPct: pd.widthPct })
         return
       }
-      // Laufendes Umsortieren: Einfüge-Index live berechnen
       const d = dragRef.current
       if (d && rowRef.current) {
         const rect = rowRef.current.getBoundingClientRect()
@@ -138,13 +316,21 @@ export default function ExportPage() {
   clipsRef.current = clips
   const clipsRefValue = () => clipsRef.current
 
-  // Ausweich-Animation, sobald sich die Einfüge-Lücke ändert
   useLayoutEffect(() => {
     if (flipState.current) {
       Flip.from(flipState.current, { duration: 0.22, ease: 'power2.out' })
       flipState.current = null
     }
   }, [drag?.insert])
+
+  // Spurbreite messen (für die Tick-Dichte im Lineal)
+  useEffect(() => {
+    const el = rowRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setLaneW(e.contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // ---------- Audio ----------
   const onAudioFile = async (f: File) => {
@@ -190,10 +376,10 @@ export default function ExportPage() {
     let raf = 0
     let last = performance.now()
     const tick = (now: number) => {
-      if (playRef.current) {
+      if (playRef.current && !scrubbing.current) {
         const el = audioEl.current
         if (el && el.src && !el.paused) setPlayhead(el.currentTime % jobRef.current.duration)
-        else setPlayhead((p) => (p + (now - last) / 1000) % jobRef.current.duration)
+        else setPlayhead((p) => (p + ((now - last) / 1000) * speedRef.current) % jobRef.current.duration)
       }
       last = now
       raf = requestAnimationFrame(tick)
@@ -202,25 +388,28 @@ export default function ExportPage() {
     return () => cancelAnimationFrame(raf)
   }, [])
 
-  const togglePlay = () => {
-    const next = !playing
-    setPlaying(next)
-    const el = audioEl.current
-    if (el && el.src) {
-      if (next) { el.currentTime = playhead; void el.play().catch(() => {}) }
-      else el.pause()
-    }
-  }
+  /**
+   * WYSIWYG: Die Vorschau zeigt exakt die Frames, die der Renderer ausgibt —
+   * dieselbe buildFrames-Rechnung inklusive aufsummierter Shader-Zeit,
+   * Drehwinkel und geglätteter Stimm-Hüllkurve. Bild 137 hier = orb_00137.png.
+   */
+  const frames = useMemo(() => {
+    if (!clips.length) return [] as Frame[]
+    try { return buildFrames(job, states) as Frame[] } catch { return [] as Frame[] }
+  }, [job, states, clips.length])
+  const preview = frames.length ? frames[Math.min(frames.length - 1, curFrame)] : null
 
-  const preview = useMemo(() => {
-    try {
-      const p = paramsAt(job, states, playhead)
-      const fi = Math.floor(playhead * fps)
-      const audible = ['listening', 'speaking'].includes(stateNameAt(job, playhead))
-      const lvl = audible ? (audioRms?.[fi] ?? 0) : 0
-      return { ...p, speed: p.speed + lvl * 0.7, distortion: p.distortion + lvl * 0.12 }
-    } catch { return null }
-  }, [playhead, job, states, fps, audioRms])
+  // Was läuft gerade am Playhead — Zustand oder Übergang?
+  const atPlayhead = useMemo(() => {
+    if (!clips.length) return null
+    const markers = clipsToMarkers(clips) as { time: number; state: string; transition?: number }[]
+    let idx = 0
+    for (let i = 0; i < markers.length; i++) if (markers[i].time <= playhead + 1e-6) idx = i
+    const m = markers[idx]
+    const trans = m.transition ?? 0
+    const inTrans = idx > 0 && playhead - m.time < trans
+    return { cur: m.state, prev: idx > 0 ? markers[idx - 1].state : null, inTrans }
+  }, [clips, playhead])
 
   // ---------- Transition-Balken ----------
   const junctions = useMemo(() => {
@@ -235,6 +424,16 @@ export default function ExportPage() {
     }
     return out
   }, [clips])
+
+  // ---------- Zeitlineal ----------
+  const ticks = useMemo(() => {
+    const steps = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60]
+    const pxPerSec = laneW / duration
+    const step = steps.find((s) => s * pxPerSec >= 62) ?? 60
+    const out: number[] = []
+    for (let t = 0; t <= duration + 1e-6; t += step) out.push(Math.round(t * 100) / 100)
+    return out
+  }, [duration, laneW])
 
   // ---------- Export ----------
   const doExport = async () => {
@@ -257,10 +456,10 @@ export default function ExportPage() {
     }, 800)
   }
 
-  const scrub = (e: React.MouseEvent) => {
+  const scrubRow = (e: React.MouseEvent) => {
     if (!rowRef.current || !clips.length || drag) return
-    const r = rowRef.current.getBoundingClientRect()
-    setPlayhead(Math.max(0, Math.min(duration, ((e.clientX - r.left) / r.width) * duration)))
+    pause()
+    seekSec(timeFromX(e.clientX, e.altKey))
   }
 
   const sel = selected !== null ? clips[selected] : null
@@ -274,95 +473,161 @@ export default function ExportPage() {
   }, [clips, drag])
 
   const rowRect = rowRef.current?.getBoundingClientRect()
+  const phPct = (playhead / duration) * 100
+  const hasClips = clips.length > 0
+
+  const TBtn = (p: { tip: string; onClick: () => void; children: React.ReactNode; primary?: boolean }) => (
+    <button className={p.primary ? 'tl-btn primary has-tip' : 'tl-btn has-tip'} data-tip={p.tip}
+      onClick={p.onClick} disabled={!hasClips}>{p.children}</button>
+  )
 
   return (
     <main className="page export-page">
       <div className="export-main">
         <div className="export-preview">
-          {preview && clips.length > 0 && (
-            <div className="orb orb-small" style={{ transform: `translateX(${preview.offsetX * 130}px)` }}>
-              <MeshGradient className="orb-shader" width="100%" height="100%"
-                colors={preview.colors} speed={preview.speed} scale={preview.scale}
-                distortion={preview.distortion} swirl={preview.swirl}
-                grainMixer={preview.grainMixer} grainOverlay={0} />
+          {preview && hasClips && (
+            {/* Versatz proportional wie im Renderer: dort 260px auf 480px Orb */}
+            <div className="orb orb-small" style={{ transform: `translateX(${preview.offsetX * 260 * (280 / 480)}px)` }}>
+              <div className="orb-rotor" style={{ transform: `rotate(${preview.rotationDeg}deg)` }}>
+                <MeshGradient className="orb-shader" width="100%" height="100%"
+                  colors={preview.colors} speed={0} frame={preview.shaderFrame} scale={preview.scale}
+                  distortion={preview.distortion} swirl={preview.swirl}
+                  grainMixer={preview.grainMixer} grainOverlay={0} />
+              </div>
               <div className="orb-overlay" style={{ opacity: preview.soften }} />
               <div className="orb-highlight" />
             </div>
           )}
-          {!clips.length && <p className="control-hint">Leere Timeline — unten mit ＋ den ersten Zustand hinzufügen.</p>}
+          {!hasClips && <p className="control-hint">Leere Timeline — unten mit ＋ den ersten Zustand hinzufügen.</p>}
         </div>
 
-        <div className="tl-bar">
-          <button className="seg-btn" onClick={togglePlay} disabled={!clips.length}>{playing ? '⏸ Pause' : '▶ Play'}</button>
-          <span className="tl-time">{playhead.toFixed(1)}s / {duration.toFixed(1)}s</span>
+        <div className="tl-transport">
+          <TBtn tip="Zum Anfang (Home)" onClick={toStart}>⏮</TBtn>
+          <TBtn tip="Vorige Clipgrenze (Alt + ←)" onClick={toPrevBoundary}>⇤</TBtn>
+          <TBtn tip="Ein Bild zurück (←) · 10 Bilder mit Shift" onClick={() => stepFrames(-1)}>◂</TBtn>
+          <TBtn tip="Abspielen / Pause (Leertaste)" onClick={togglePlay} primary>{playing ? '⏸' : '▶'}</TBtn>
+          <TBtn tip="Stopp — pausiert und springt an den Anfang" onClick={stop}>⏹</TBtn>
+          <TBtn tip="Ein Bild vor (→) · 10 Bilder mit Shift" onClick={() => stepFrames(1)}>▸</TBtn>
+          <TBtn tip="Nächste Clipgrenze (Alt + →)" onClick={toNextBoundary}>⇥</TBtn>
+          <TBtn tip="Zum Ende (End)" onClick={toEnd}>⏭</TBtn>
+
+          <span className="tl-div" />
+          <button className="tl-btn has-tip" data-tip="Rückgängig (Cmd + Z) — auch Trimmen, Umsortieren und Löschen"
+            onClick={undo} disabled={!past.length}>↶</button>
+          <button className="tl-btn has-tip" data-tip="Wiederherstellen (Cmd + Shift + Z)"
+            onClick={redo} disabled={!future.length}>↷</button>
+
+          <span className="tl-readout has-tip" data-tip="Position: Sekunden · aktuelles Bild von insgesamt. Bildgenau — ein Bild = 1/FPS Sekunde.">
+            <strong>{playhead.toFixed(2)}s</strong>
+            <span className="tl-sep">/</span>{duration.toFixed(2)}s
+            <span className="tl-frame">Bild {curFrame + 1} / {totalFrames}</span>
+          </span>
+
+          {atPlayhead && (
+            <span className="tl-state has-tip" data-tip="Was der Orb an dieser Stelle gerade macht — bei einem Übergang stehen beide Zustände da.">
+              <span className="tl-state-dot" style={{ background: stateColor(atPlayhead.cur) }} />
+              {atPlayhead.inTrans && atPlayhead.prev
+                ? `${stateLabel(atPlayhead.prev)} → ${stateLabel(atPlayhead.cur)}`
+                : stateLabel(atPlayhead.cur)}
+            </span>
+          )}
+
+          <span className="tl-spacer" />
+          <span className="tl-speed has-tip" data-tip="Abspieltempo der Vorschau — langsam abspielen hilft beim Beurteilen der Übergänge. Ändert den Export nicht.">
+            {SPEEDS.map((s) => (
+              <button key={s} className={speed === s ? 'seg-btn active' : 'seg-btn'} onClick={() => setSpeed(s)}>{s}×</button>
+            ))}
+          </span>
         </div>
 
-        <div className="trans-row">
-          {!drag && junctions.map((j, i) => (
-            <div key={i} className="trans-bar has-tip"
-              data-tip={`Automatische Transition: ${j.label} — wird später als Standard festgeschrieben.`}
-              style={{
-                left: `calc(${((j.at - j.len / 2) / duration) * 100}%)`,
-                width: `${(j.len / duration) * 100}%`,
-              }}>
-              <span>{j.label}</span>
-            </div>
-          ))}
-        </div>
+        <div className="tl-lanes">
+          <div className="trans-row">
+            {!drag && junctions.map((j, i) => (
+              <div key={i} className="trans-bar has-tip"
+                data-tip={`Automatische Transition: ${j.label} — wird später als Standard festgeschrieben.`}
+                style={{
+                  left: `calc(${((j.at - j.len / 2) / duration) * 100}%)`,
+                  width: `${(j.len / duration) * 100}%`,
+                }}>
+                <span>{j.label}</span>
+              </div>
+            ))}
+          </div>
 
-        <div className="clip-row-wrap">
-          <div className={drag ? 'clip-row dragging' : 'clip-row'} ref={rowRef} onClick={scrub}>
-            {renderList.map((c) =>
-              c === 'gap' ? (
-                <div key="gap" data-flip-id="gap" className="clip-gap" style={{ width: `${drag!.widthPct}%` }} />
-              ) : (
-                <div key={c.id} data-flip-id={c.id}
-                  className={selected === clips.indexOf(c) && !drag ? 'clip selected' : 'clip'}
-                  style={{ width: `${(c.duration / duration) * 100}%`, background: stateColor(c.state) }}
-                  onPointerDown={(e) => {
-                    const idx = clips.indexOf(c)
-                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                    pendingDrag.current = { idx, startX: e.clientX, grabDX: e.clientX - rect.left, widthPct: (c.duration / duration) * 100 }
-                  }}
-                  onClick={(e) => e.stopPropagation()}>
-                  <span className="clip-edge l" onPointerDown={(e) => { e.stopPropagation(); resizing.current = { idx: clips.indexOf(c), edge: 'l', startX: e.clientX, startDur: c.duration } }}><i /></span>
-                  <span className="clip-label">{states[c.state]?.label ?? c.state}</span>
-                  <span className="clip-dur">{c.duration.toFixed(1)}s</span>
-                  <button className="clip-x" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); deleteClip(clips.indexOf(c)) }}>×</button>
-                  <span className="clip-edge r" onPointerDown={(e) => { e.stopPropagation(); resizing.current = { idx: clips.indexOf(c), edge: 'r', startX: e.clientX, startDur: c.duration } }}><i /></span>
+          <div className="tl-ruler has-tip" onPointerDown={beginScrub}
+            data-tip="Zeitlineal — klicken oder ziehen zum Spulen. Der Playhead rastet an Clipgrenzen ein; Alt gedrückt halten = frei.">
+            {ticks.map((t) => (
+              <span key={t} className="tl-tick" style={{ left: `${(t / duration) * 100}%` }}>
+                <i /><em>{t % 1 === 0 ? `${t}s` : `${t.toFixed(1)}s`}</em>
+              </span>
+            ))}
+          </div>
+
+          <div className="clip-row-wrap">
+            <div className={drag ? 'clip-row dragging' : 'clip-row'} ref={rowRef} onClick={scrubRow}>
+              {renderList.map((c) =>
+                c === 'gap' ? (
+                  <div key="gap" data-flip-id="gap" className="clip-gap" style={{ width: `${drag!.widthPct}%` }} />
+                ) : (
+                  <div key={c.id} data-flip-id={c.id}
+                    className={selected === clips.indexOf(c) && !drag ? 'clip selected' : 'clip'}
+                    style={{ width: `${(c.duration / duration) * 100}%`, background: stateColor(c.state) }}
+                    onPointerDown={(e) => {
+                      const idx = clips.indexOf(c)
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                      pendingDrag.current = { idx, startX: e.clientX, grabDX: e.clientX - rect.left, widthPct: (c.duration / duration) * 100 }
+                    }}
+                    onClick={(e) => e.stopPropagation()}>
+                    <span className="clip-edge l" onPointerDown={(e) => { e.stopPropagation(); commit(); resizing.current ={ idx: clips.indexOf(c), edge: 'l', startX: e.clientX, startDur: c.duration } }}><i /></span>
+                    <span className="clip-label">{stateLabel(c.state)}</span>
+                    <span className="clip-dur">{c.duration.toFixed(1)}s</span>
+                    <button className="clip-x" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); deleteClip(clips.indexOf(c)) }}>×</button>
+                    <span className="clip-edge r" onPointerDown={(e) => { e.stopPropagation(); commit(); resizing.current ={ idx: clips.indexOf(c), edge: 'r', startX: e.clientX, startDur: c.duration } }}><i /></span>
+                  </div>
+                ),
+              )}
+              {drag && rowRect && (
+                <div className="clip floating" style={{
+                  width: `${drag.widthPct}%`,
+                  background: stateColor(clips[drag.idx].state),
+                  left: Math.max(0, Math.min(rowRect.width * (1 - drag.widthPct / 100), drag.x - rowRect.left - drag.grabDX)),
+                }}>
+                  <span className="clip-label">{stateLabel(clips[drag.idx].state)}</span>
+                  <span className="clip-dur">{clips[drag.idx].duration.toFixed(1)}s</span>
                 </div>
-              ),
-            )}
-            {clips.length > 0 && !drag && <div className="tl-playhead" style={{ left: `${(playhead / duration) * 100}%` }} />}
-            {/* Der schwebende Clip folgt dem Zeiger */}
-            {drag && rowRect && (
-              <div className="clip floating" style={{
-                width: `${drag.widthPct}%`,
-                background: stateColor(clips[drag.idx].state),
-                left: Math.max(0, Math.min(rowRect.width * (1 - drag.widthPct / 100), drag.x - rowRect.left - drag.grabDX)),
-              }}>
-                <span className="clip-label">{states[clips[drag.idx].state]?.label}</span>
-                <span className="clip-dur">{clips[drag.idx].duration.toFixed(1)}s</span>
-              </div>
-            )}
+              )}
+            </div>
+            <div className="plus-wrap">
+              <button className="plus-btn" onClick={() => setPickerOpen(!pickerOpen)}>＋</button>
+              {pickerOpen && (
+                <div className="state-picker">
+                  {Object.keys(states).map((k) => (
+                    <button key={k} className="picker-item" onClick={() => addClip(k)}>
+                      <span className="picker-dot" style={{ background: stateColor(k) }} />
+                      {states[k].label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-          <div className="plus-wrap">
-            <button className="plus-btn" onClick={() => setPickerOpen(!pickerOpen)}>＋</button>
-            {pickerOpen && (
-              <div className="state-picker">
-                {Object.keys(states).map((k) => (
-                  <button key={k} className="picker-item" onClick={() => addClip(k)}>
-                    <span className="picker-dot" style={{ background: stateColor(k) }} />
-                    {states[k].label}
-                  </button>
-                ))}
+
+          <canvas ref={waveRef} className="tl-wave" width={1100} height={64} onPointerDown={beginScrub} />
+
+          {hasClips && !drag && (
+            <div className="tl-ph-layer">
+              <div className="tl-ph" style={{ left: `${phPct}%` }}>
+                <span className="tl-ph-grip" onPointerDown={beginScrub} />
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
-        <canvas ref={waveRef} className="tl-wave" width={1100} height={64} />
-        <p className="control-hint">＋ = Zustand anhängen · Mitte ziehen = umsortieren (Clips weichen live aus) · Kante ziehen = Dauer trimmen · Klick = auswählen/spulen</p>
+        <p className="control-hint">
+          ＋ = Zustand anhängen · Mitte ziehen = umsortieren · Kante ziehen = Dauer trimmen · Lineal ziehen = spulen
+          <br />
+          Tasten: Leertaste = Play/Pause · ← → = ein Bild · Shift + ← → = zehn Bilder · Alt + ← → = Clipgrenze · Pos1 / Ende = Anfang / Ende · Entf = ausgewählten Block löschen
+        </p>
       </div>
 
       <aside className="controls">
@@ -370,14 +635,15 @@ export default function ExportPage() {
 
         {sel ? (
           <div className="control marker-editor">
-            <span className="control-label"><span>{states[sel.state]?.label}</span>
+            <span className="control-label"><span>{stateLabel(sel.state)}</span>
               <button className="mini-btn" onClick={() => deleteClip(selected!)}>Löschen</button>
             </span>
             <select className="edit-select" value={sel.state} onChange={(e) => patchClip(selected!, { state: e.target.value })}>
               {Object.keys(states).map((k) => <option key={k} value={k}>{states[k].label}</option>)}
             </select>
-            <label className="control has-tip" data-tip="Dauer dieses Blocks — geht auch per Kanten-Ziehen direkt am Block.">
-              <span className="control-label"><span>Dauer</span><span>{sel.duration.toFixed(1)}s</span></span>
+            <label className="control has-tip" data-tip="Dauer dieses Blocks — geht auch per Kanten-Ziehen direkt am Block. Beim Ziehen rastet sie auf ganze Bilder.">
+              <span className="control-label"><span>Dauer</span>
+                <span>{sel.duration.toFixed(2)}s · {Math.round(sel.duration * fps)} B</span></span>
               <input type="range" min={0.4} max={15} step={0.1} value={sel.duration}
                 onChange={(e) => patchClip(selected!, { duration: Number(e.target.value) })} />
             </label>
@@ -386,6 +652,15 @@ export default function ExportPage() {
         ) : (
           <p className="control-hint">Block anklicken zum Bearbeiten.</p>
         )}
+
+        <div className="control has-tip" data-tip="Die Timeline wird laufend im Browser gesichert und beim Öffnen wiederhergestellt. ‚Leeren' lässt sich mit Cmd + Z zurücknehmen.">
+          <span className="control-label"><span>Timeline</span>
+            <button className="mini-btn" onClick={clearAll} disabled={!hasClips}>Leeren</button>
+          </span>
+          <p className="control-hint" style={{ marginTop: 0 }}>
+            {hasClips ? `${clips.length} Blöcke · ${duration.toFixed(1)}s · ${totalFrames} Bilder · automatisch gesichert` : 'leer'}
+          </p>
+        </div>
 
         <div className="control has-tip" data-tip="Voice-Take laden: Waveform erscheint unter der Spur, Reaktivität wird beim Export eingebacken.">
           <span className="control-label"><span>Audio</span><span>{audioName || '—'}</span></span>

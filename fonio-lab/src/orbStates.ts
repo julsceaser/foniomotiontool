@@ -59,6 +59,24 @@ export const DEFAULT_STATES: Record<string, StateDef> = {
   },
 }
 
+/**
+ * Kräftige Kennfarben NUR für die Editor-UI (Clips, Picker-Punkte).
+ * Der Orb selbst bleibt davon unberührt — seit alle Zustände pastellig sind,
+ * wären die echten Farben in der Timeline nicht mehr unterscheidbar.
+ * Dunkel genug für weiße Schrift.
+ */
+export const STATE_UI_COLORS: Record<string, string> = {
+  idle: '#7C9AF2',      // ruhiges Blau
+  listening: '#12A9C9', // Cyan
+  thinking: '#4B4FE0',  // tiefes Indigo
+  speaking: '#12A88A',  // Türkis
+  success: '#2FA84F',   // Grün
+  unsure: '#8F6BE8',    // Violett
+  transfer: '#1E6FC2',  // Stahlblau
+  offline: '#8A8A94',   // Grau
+}
+export const UI_COLOR_FALLBACK = '#A1A1AA'
+
 export const deepCopy = <T,>(x: T): T => JSON.parse(JSON.stringify(x))
 
 export function loadStates(): Record<string, StateDef> {
