@@ -4,7 +4,7 @@ import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
 import { loadStates, STATE_UI_COLORS, UI_COLOR_FALLBACK } from '../orbStates'
 // @ts-expect-error – shared JS engine (same file the renderer uses)
-import { buildFrames, clipsToMarkers, AUTO_TRANSITIONS, DEFAULT_CLIP_DURATION } from '../engine/orbTimeline.mjs'
+import { buildFrames, clipsToMarkers, AUTO_TRANSITIONS, DEFAULT_CLIP_DURATION, DEFAULT_VOICE, VOICE_PRESETS } from '../engine/orbTimeline.mjs'
 
 gsap.registerPlugin(Flip)
 
@@ -22,6 +22,22 @@ let nextId = 1
 
 type Drag = { idx: number; x: number; grabDX: number; insert: number; widthPct: number }
 
+/**
+ * Transport-Knopf. MUSS außerhalb der Seiten-Komponente stehen: wäre er darin
+ * definiert, bekäme React bei jedem Bild einen neuen Komponententyp, würde die
+ * Knöpfe ständig neu aufbauen — und während der Wiedergabe wäre keiner mehr
+ * klickbar (Mausdruck und Loslassen träfen verschiedene Elemente).
+ */
+function TBtn(p: {
+  tip: string; onClick: () => void; children: React.ReactNode
+  primary?: boolean; disabled?: boolean
+}) {
+  return (
+    <button className={p.primary ? 'tl-btn primary has-tip' : 'tl-btn has-tip'} data-tip={p.tip}
+      onClick={p.onClick} disabled={p.disabled}>{p.children}</button>
+  )
+}
+
 /** Ein fertig gerechnetes Bild aus der Engine — identisch mit dem, was der Renderer schießt. */
 type Frame = {
   colors: string[]; speed: number; distortion: number; swirl: number
@@ -36,7 +52,23 @@ const PREVIEW_SHIFT = 260 * (280 / 480)
 
 /** Auto-Sicherung: die Clip-Arbeit darf einen Reload nicht überleben müssen. */
 const TL_LS_KEY = 'fonio-timeline-v1'
-type SavedTimeline = { clips: Clip[]; fps: number; size: number; loop: boolean; name: string }
+type Voice = {
+  attack: number; release: number; speed: number
+  distortion: number; scale: number; swirl: number; soften: number
+}
+const VOICE_DEFAULTS = DEFAULT_VOICE as Voice
+type SavedTimeline ={ clips: Clip[]; fps: number; size: number; loop: boolean; name: string; voice?: Voice }
+
+/** Regler für die Stimm-Reaktion — Zuschlag bei voller Lautstärke. */
+const VOICE_SLIDERS: { key: keyof Voice; label: string; min: number; max: number; hint: string }[] = [
+  { key: 'speed', label: 'Tempo', min: 0, max: 2, hint: 'Wie viel schneller die Oberfläche bei lauter Stimme fließt. Der Haupteffekt.' },
+  { key: 'scale', label: 'Muster-Zoom', min: 0, max: 0.4, hint: 'Das Muster im Inneren atmet mit der Stimme. Die Kugel selbst bleibt immer gleich groß.' },
+  { key: 'swirl', label: 'Wirbel', min: 0, max: 0.8, hint: 'Zusätzliche Verwirbelung bei lauten Stellen.' },
+  { key: 'distortion', label: 'Verformung', min: 0, max: 0.6, hint: 'Wie stark sich die Farbflächen verziehen. Zu viel wirkt verkrampft.' },
+  { key: 'soften', label: 'Aufhellung', min: -0.3, max: 0.1, hint: 'Negativ = weniger Weiß bei lauten Stellen, die Farben treten hervor. Positiv = blasser.' },
+  { key: 'attack', label: 'Ansprechen', min: 0.1, max: 1, hint: 'Wie schnell die Reaktion auf einen Lautstärke-Anstieg anspringt. Hoch = direkt.' },
+  { key: 'release', label: 'Ausklang', min: 0.05, max: 0.5, hint: 'Wie schnell sie zwischen den Silben wieder abfällt. Zu träge und alles verschmiert zu einer gleichförmigen Dauerbewegung — genau das war der Grund, warum die Reaktion vorher nach nichts aussah.' },
+]
 const loadTimeline = (): SavedTimeline | null => {
   try {
     const raw = localStorage.getItem(TL_LS_KEY)
@@ -63,6 +95,7 @@ export default function ExportPage() {
   const [name, setName] = useState(SAVED?.name ?? 'meine-timeline')
   const [past, setPast] = useState<Clip[][]>([])
   const [future, setFuture] = useState<Clip[][]>([])
+  const [voice, setVoice] = useState<Voice>({ ...VOICE_DEFAULTS, ...(SAVED?.voice ?? {}) })
   const [playhead, setPlayhead] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(1)
@@ -88,10 +121,10 @@ export default function ExportPage() {
   const curFrame = clamp(Math.round(playhead * fps), 0, totalFrames - 1)
 
   const job = useMemo(() => ({
-    duration, fps, loop,
+    duration, fps, loop, voice,
     markers: clips.length ? clipsToMarkers(clips) : [{ time: 0, state: 'idle' }],
     audioRms, audioSensitivity: 0.22,
-  }), [clips, duration, fps, loop, audioRms])
+  }), [clips, duration, fps, loop, audioRms, voice])
   const jobRef = useRef(job)
   jobRef.current = job
   const playRef = useRef(playing)
@@ -138,8 +171,8 @@ export default function ExportPage() {
 
   // Auto-Sicherung nach jeder Änderung
   useEffect(() => {
-    try { localStorage.setItem(TL_LS_KEY, JSON.stringify({ clips, fps, size, loop, name })) } catch { /* voll */ }
-  }, [clips, fps, size, loop, name])
+    try { localStorage.setItem(TL_LS_KEY, JSON.stringify({ clips, fps, size, loop, name, voice })) } catch { /* voll */ }
+  }, [clips, fps, size, loop, name, voice])
 
   // ---------- Transport ----------
   const pause = () => {
@@ -478,10 +511,7 @@ export default function ExportPage() {
   const phPct = (playhead / duration) * 100
   const hasClips = clips.length > 0
 
-  const TBtn = (p: { tip: string; onClick: () => void; children: React.ReactNode; primary?: boolean }) => (
-    <button className={p.primary ? 'tl-btn primary has-tip' : 'tl-btn has-tip'} data-tip={p.tip}
-      onClick={p.onClick} disabled={!hasClips}>{p.children}</button>
-  )
+  const off = !hasClips
 
   return (
     <main className="page export-page">
@@ -503,14 +533,14 @@ export default function ExportPage() {
         </div>
 
         <div className="tl-transport">
-          <TBtn tip="Zum Anfang (Home)" onClick={toStart}>⏮</TBtn>
-          <TBtn tip="Vorige Clipgrenze (Alt + ←)" onClick={toPrevBoundary}>⇤</TBtn>
-          <TBtn tip="Ein Bild zurück (←) · 10 Bilder mit Shift" onClick={() => stepFrames(-1)}>◂</TBtn>
-          <TBtn tip="Abspielen / Pause (Leertaste)" onClick={togglePlay} primary>{playing ? '⏸' : '▶'}</TBtn>
-          <TBtn tip="Stopp — pausiert und springt an den Anfang" onClick={stop}>⏹</TBtn>
-          <TBtn tip="Ein Bild vor (→) · 10 Bilder mit Shift" onClick={() => stepFrames(1)}>▸</TBtn>
-          <TBtn tip="Nächste Clipgrenze (Alt + →)" onClick={toNextBoundary}>⇥</TBtn>
-          <TBtn tip="Zum Ende (End)" onClick={toEnd}>⏭</TBtn>
+          <TBtn tip="Zum Anfang (Home)" onClick={toStart} disabled={off}>⏮</TBtn>
+          <TBtn tip="Vorige Clipgrenze (Alt + ←)" onClick={toPrevBoundary} disabled={off}>⇤</TBtn>
+          <TBtn tip="Ein Bild zurück (←) · 10 Bilder mit Shift" onClick={() => stepFrames(-1)} disabled={off}>◂</TBtn>
+          <TBtn tip="Abspielen / Pause (Leertaste)" onClick={togglePlay} primary disabled={off}>{playing ? '⏸' : '▶'}</TBtn>
+          <TBtn tip="Stopp — pausiert und springt an den Anfang" onClick={stop} disabled={off}>⏹</TBtn>
+          <TBtn tip="Ein Bild vor (→) · 10 Bilder mit Shift" onClick={() => stepFrames(1)} disabled={off}>▸</TBtn>
+          <TBtn tip="Nächste Clipgrenze (Alt + →)" onClick={toNextBoundary} disabled={off}>⇥</TBtn>
+          <TBtn tip="Zum Ende (End)" onClick={toEnd} disabled={off}>⏭</TBtn>
 
           <span className="tl-div" />
           <button className="tl-btn has-tip" data-tip="Rückgängig (Cmd + Z) — auch Trimmen, Umsortieren und Löschen"
@@ -666,6 +696,27 @@ export default function ExportPage() {
         <div className="control has-tip" data-tip="Voice-Take laden: Waveform erscheint unter der Spur, Reaktivität wird beim Export eingebacken.">
           <span className="control-label"><span>Audio</span><span>{audioName || '—'}</span></span>
           <input type="file" accept="audio/*" onChange={(e) => e.target.files?.[0] && void onAudioFile(e.target.files[0])} />
+        </div>
+
+        <div className="control has-tip" data-tip="Wie die Stimme den Orb bewegt — wirkt in den Zuständen Zuhören und Sprechen, live in der Vorschau und identisch im Export. Die Größe der Kugel bleibt immer unberührt.">
+          <span className="control-label"><span>Stimm-Reaktion</span>
+            <button className="mini-btn" onClick={() => setVoice({ ...VOICE_DEFAULTS })}>↺ Standard</button>
+          </span>
+          <div className="seg">
+            {(['dezent', 'deutlich', 'stark'] as const).map((k) => (
+              <button key={k} className="seg-btn" onClick={() => setVoice({ ...(VOICE_PRESETS as Record<string, Voice>)[k] })}>
+                {k[0].toUpperCase() + k.slice(1)}
+              </button>
+            ))}
+          </div>
+          {VOICE_SLIDERS.map((s) => (
+            <label key={s.key} className="control has-tip" data-tip={s.hint}>
+              <span className="control-label"><span>{s.label}</span><span>{voice[s.key].toFixed(2)}</span></span>
+              <input type="range" min={s.min} max={s.max} step={0.01} value={voice[s.key]}
+                onChange={(e) => setVoice((v) => ({ ...v, [s.key]: Number(e.target.value) }))} />
+            </label>
+          ))}
+          {!audioName && <p className="control-hint" style={{ marginTop: 0 }}>Zum Beurteilen oben einen Voice-Take laden.</p>}
         </div>
 
         <div className="control">

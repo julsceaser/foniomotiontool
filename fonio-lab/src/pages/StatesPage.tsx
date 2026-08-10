@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { MeshGradient } from '@paper-design/shaders-react'
 import { loadStates, deepCopy, type StateParams } from '../orbStates'
+// @ts-expect-error – shared JS engine (same file the renderer uses)
+import { envStep, DEFAULT_VOICE } from '../engine/orbTimeline.mjs'
 
 /**
  * States PREVIEW — switch between Lena's states and watch the transitions.
@@ -29,6 +31,7 @@ export default function StatesPage() {
 
   const current = useRef<StateParams>(deepCopy(rendered))
   const envRef = useRef(0)
+  const lastRef = useRef(performance.now())
   const rotAngle = useRef(0)
   const rotorRef = useRef<HTMLDivElement | null>(null)
   const statesRef = useRef(states)
@@ -102,25 +105,40 @@ export default function StatesPage() {
       const c = current.current
       const t = statesRef.current[stateRef.current].p
       const k = 0.07
+      // 1. Zustandswechsel: weich auf die Zielwerte zulaufen
+      c.speed = lerp(c.speed, t.speed, k)
+      c.distortion = lerp(c.distortion, t.distortion, k)
       c.swirl = lerp(c.swirl, t.swirl, k)
       c.grainMixer = lerp(c.grainMixer, t.grainMixer, k)
       c.soften = lerp(c.soften, t.soften, k)
+      c.scale = lerp(c.scale, t.scale, k)
       c.offsetX = lerp(c.offsetX, t.offsetX, k)
       c.rotationSpeed = lerp(c.rotationSpeed, t.rotationSpeed, k)
+      c.colors = c.colors.map((col, i) => lerpColor(col, t.colors[i] ?? W, k))
       rotAngle.current = (rotAngle.current + c.rotationSpeed * (1 / 60)) % 360
       if (rotorRef.current) rotorRef.current.style.transform = `rotate(${rotAngle.current}deg)`
-      // Stimme = schnellere Oberflächen-Bewegung + Hauch Distortion (Envelope gegen Zucken)
+
+      // 2. Stimme obendrauf — dieselbe Hüllkurve und dieselben Zuschläge wie in
+      // der Engine, damit Preview, Export-Vorschau und Render übereinstimmen.
       const audible = stateRef.current === 'listening' || stateRef.current === 'speaking'
-      const target = audible ? lvl : 0
-      envRef.current = target > envRef.current ? envRef.current + (target - envRef.current) * 0.5 : envRef.current + (target - envRef.current) * 0.06
+      const dt = Math.min(0.1, (now - lastRef.current) / 1000)
+      lastRef.current = now
+      envRef.current = envStep(envRef.current, audible ? lvl : 0, DEFAULT_VOICE, dt)
+      const env = envRef.current
+      const V = DEFAULT_VOICE
       const breath = stateRef.current === 'idle' ? Math.sin(now / 2200) * 0.03 : 0
-      c.scale = lerp(c.scale, t.scale + breath, 0.12)
-      c.speed = lerp(c.speed, t.speed + envRef.current * 0.7, 0.3)
-      c.distortion = lerp(c.distortion, t.distortion + envRef.current * 0.12, 0.25)
-      c.colors = c.colors.map((col, i) => lerpColor(col, t.colors[i] ?? W, k))
+
       if (now - lastRender > 33) {
         lastRender = now
-        setRendered({ ...c, colors: [...c.colors] })
+        setRendered({
+          ...c,
+          speed: c.speed + env * V.speed,
+          distortion: Math.max(0, c.distortion + env * V.distortion),
+          swirl: Math.max(0, c.swirl + env * V.swirl),
+          scale: Math.max(0.1, c.scale * (1 + env * V.scale) + breath),
+          soften: Math.max(0, Math.min(1, c.soften + env * V.soften)),
+          colors: [...c.colors],
+        })
         setLevel(lvl)
       }
       raf = requestAnimationFrame(tick)

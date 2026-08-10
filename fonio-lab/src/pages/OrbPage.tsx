@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { MeshGradient, GrainGradient, Metaballs, Warp, SmokeRing } from '@paper-design/shaders-react'
 import { DEFAULT_STATES, loadStates, saveStateParams, deepCopy, type StateParams } from '../orbStates'
+// @ts-expect-error – shared JS engine (same file the renderer uses)
+import { envStep, DEFAULT_VOICE } from '../engine/orbTimeline.mjs'
 
 /**
  * Orb EDITOR — the dropdown at the top selects what is being edited:
@@ -179,16 +181,23 @@ export default function OrbPage() {
   useEffect(() => {
     let raf = 0
     let lastRender = 0
+    let last = performance.now()
     const data = new Uint8Array(256)
     const tick = (now: number) => {
+      const dt = Math.min(0.1, (now - last) / 1000)
+      last = now
       if (analyser.current && (micStream.current || voicePlaying)) {
         analyser.current.getByteTimeDomainData(data)
         let sum = 0
         for (let i = 0; i < data.length; i++) { const d = (data[i] - 128) / 128; sum += d * d }
         const raw = Math.min(1, Math.sqrt(sum / data.length) * 4)
-        envR.current = raw > envR.current ? envR.current + (raw - envR.current) * 0.5 : envR.current + (raw - envR.current) * 0.06
+        envR.current = envStep(envR.current, raw, DEFAULT_VOICE, dt)
         if (now - lastRender > 33) { lastRender = now; setLevel(envR.current) }
-      } else if (level !== 0 && now - lastRender > 200) { lastRender = now; setLevel(0) }
+      } else if (level !== 0 && now - lastRender > 200) {
+        envR.current = 0
+        lastRender = now
+        setLevel(0)
+      }
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
@@ -238,7 +247,9 @@ export default function OrbPage() {
   }
 
   const nonWhite = colors.filter((c) => c.toUpperCase() !== '#FFFFFF')
-  const soften = isPg ? pg.soften : stateDraft.soften
+  // Stimme wirkt nur in den Zuständen, die wirklich zuhören oder sprechen
+  const vEnv = !isPg && ['listening', 'speaking'].includes(target) ? level : 0
+  const soften = isPg ? pg.soften : Math.max(0, Math.min(1, stateDraft.soften + vEnv * DEFAULT_VOICE.soften))
 
   return (
     <main className="page">
@@ -286,8 +297,10 @@ export default function OrbPage() {
             </>
           ) : (
             <MeshGradient className="orb-shader" width="100%" height="100%"
-              colors={stateDraft.colors} speed={stateDraft.speed}
-              distortion={stateDraft.distortion + (['listening', 'speaking'].includes(target) ? level * 0.12 : 0)} swirl={stateDraft.swirl}
+              colors={stateDraft.colors} speed={stateDraft.speed + vEnv * DEFAULT_VOICE.speed}
+              scale={Math.max(0.1, stateDraft.scale * (1 + vEnv * DEFAULT_VOICE.scale))}
+              distortion={Math.max(0, stateDraft.distortion + vEnv * DEFAULT_VOICE.distortion)}
+              swirl={Math.max(0, stateDraft.swirl + vEnv * DEFAULT_VOICE.swirl)}
               grainMixer={stateDraft.grainMixer} grainOverlay={0} />
           )}
           </div>

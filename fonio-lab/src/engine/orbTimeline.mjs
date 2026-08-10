@@ -110,11 +110,39 @@ export function stateNameAt(job, t) {
 const AUDIO_STATES = new Set(['listening', 'speaking'])
 
 /**
+ * Wie die Stimme den Orb bewegt. Ein Wert pro Parameter = Zuschlag bei
+ * voller Lautstärke (Hüllkurve 1.0). Ball-GRÖSSE ist nie dabei — `scale`
+ * ist der Muster-Zoom im Inneren.
+ *
+ * attack/release sind Glättungs-Koeffizienten bezogen auf 30 fps und werden
+ * über envStep auf die tatsächliche Bildzeit umgerechnet. Release war lange
+ * 0.06 (~0.55s Abklingzeit) — das schmierte alle Silben zu einem Dauerplateau
+ * zusammen, die Reaktion war zwar da, aber konstant und damit unsichtbar.
+ */
+export const VOICE_PRESETS = {
+  // gemessen an der mittleren Bildänderung pro 0.1s (Orb 280px, demo.wav):
+  // ohne Stimme 0.68 · dezent 0.92 · deutlich 1.83 · stark 4.36
+  dezent:   { attack: 0.5, release: 0.2,  speed: 0.9, distortion: 0.18, scale: 0.1,  swirl: 0.3,  soften: -0.1 },
+  deutlich: { attack: 0.6, release: 0.3,  speed: 1.5, distortion: 0.35, scale: 0.28, swirl: 0.6,  soften: -0.22 },
+  stark:    { attack: 0.8, release: 0.4,  speed: 2,   distortion: 0.6,  scale: 0.4,  swirl: 0.8,  soften: -0.3 },
+}
+
+export const DEFAULT_VOICE = { ...VOICE_PRESETS.deutlich }
+
+/** Ein Hüllkurven-Schritt, bildratenunabhängig (Koeffizienten gelten für 30 fps). */
+export function envStep(env, raw, voice, dtSec) {
+  const k = raw > env ? voice.attack : voice.release
+  const kk = 1 - Math.pow(1 - Math.max(0, Math.min(0.999, k)), Math.max(0, dtSec) * 30)
+  return env + (raw - env) * kk
+}
+
+/**
  * Berechnet alle Frames eines Jobs (deterministisch).
  * Rückgabe: Array von RenderParams inkl. shaderFrame + rotationDeg.
  * extraFrames: zusätzliche Frames über duration hinaus (für Loop-Crossfade).
  */
 export function buildFrames(job, states, extraFrames = 0) {
+  const voice = { ...DEFAULT_VOICE, ...(job.voice ?? {}) }
   const fps = job.fps ?? 30
   const total = Math.round(job.duration * fps) + extraFrames
   const rms = job.audioRms ?? []
@@ -131,13 +159,16 @@ export function buildFrames(job, states, extraFrames = 0) {
     // Stimme beschleunigt die Oberflächen-Bewegung (Speed) + hauchzarte Distortion —
     // nie Ball-Größe, nie hartes Zucken (Envelope: Attack schnell, Release langsam)
     const raw = AUDIO_STATES.has(stateNameAt(job, t)) ? (rms[f % Math.max(1, rms.length)] ?? 0) : 0
-    env = raw > env ? env + (raw - env) * 0.5 : env + (raw - env) * 0.06
-    const spd = p.speed + env * 0.7
+    env = envStep(env, raw, voice, 1 / fps)
+    const spd = p.speed + env * voice.speed
     shaderFrame += (spd - p.speed) * dtMs // Zusatz-Zeit durch Stimm-Beschleunigung
     frames.push({
       ...p,
       speed: spd,
-      distortion: p.distortion + env * 0.12,
+      distortion: Math.max(0, p.distortion + env * voice.distortion),
+      scale: Math.max(0.1, p.scale * (1 + env * voice.scale)),
+      swirl: Math.max(0, p.swirl + env * voice.swirl),
+      soften: Math.max(0, Math.min(1, p.soften + env * voice.soften)),
       shaderFrame, rotationDeg,
     })
   }
