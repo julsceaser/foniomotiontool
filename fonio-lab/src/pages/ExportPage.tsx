@@ -31,6 +31,8 @@ type Frame = {
 
 const SPEEDS = [0.25, 0.5, 1, 2]
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+/** Seitenversatz proportional zum Renderer: dort 260px bei 480px Orb, hier 280px. */
+const PREVIEW_SHIFT = 260 * (280 / 480)
 
 /** Auto-Sicherung: die Clip-Arbeit darf einen Reload nicht überleben müssen. */
 const TL_LS_KEY = 'fonio-timeline-v1'
@@ -486,8 +488,7 @@ export default function ExportPage() {
       <div className="export-main">
         <div className="export-preview">
           {preview && hasClips && (
-            {/* Versatz proportional wie im Renderer: dort 260px auf 480px Orb */}
-            <div className="orb orb-small" style={{ transform: `translateX(${preview.offsetX * 260 * (280 / 480)}px)` }}>
+            <div className="orb orb-small" style={{ transform: `translateX(${preview.offsetX * PREVIEW_SHIFT}px)` }}>
               <div className="orb-rotor" style={{ transform: `rotate(${preview.rotationDeg}deg)` }}>
                 <MeshGradient className="orb-shader" width="100%" height="100%"
                   colors={preview.colors} speed={0} frame={preview.shaderFrame} scale={preview.scale}
