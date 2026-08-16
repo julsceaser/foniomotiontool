@@ -183,69 +183,130 @@ function refreshUI() {
 
 function alleP() {
   var all = {};
-  for (var k in PRESETS) all[k] = PRESETS[k];
-  for (var e in eigene) all[e] = eigene[e];
+  for (var k in PRESETS) all[k] = { werte: PRESETS[k], eigen: false };
+  for (var e in eigene) all[e] = { werte: eigene[e], eigen: true };
   return all;
 }
 
+/** Kleine Federkurve als Vorschaubild — wie die Kurven-Miniaturen in Flow. */
+function malKurve(cv, w) {
+  var c = cv.getContext('2d'), W = 34, H = 18;
+  var dpr = window.devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr;
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, W, H);
+  var f = w.einFreq || 1.6, d = w.einDamp || 9;
+  c.strokeStyle = '#8a8a8a'; c.lineWidth = 1;
+  c.beginPath();
+  for (var i = 0; i <= W; i++) {
+    var t = (i / W) * 1.1;
+    var v = spring(t, f, d);
+    var y = H - 3 - v * (H - 7);
+    if (i === 0) c.moveTo(i, y); else c.lineTo(i, y);
+  }
+  c.stroke();
+}
+
 function buildPresets() {
-  var bar = document.getElementById('presets');
-  bar.innerHTML = '';
+  var list = document.getElementById('lib-list');
+  list.innerHTML = '';
   var all = alleP();
   for (var name in all) {
-    (function (n) {
-      var el = document.createElement('div');
-      el.className = 'preset';
-      el.textContent = n.charAt(0).toUpperCase() + n.slice(1);
-      el.setAttribute('data-p', n);
-      if (eigene[n]) el.title = 'Eigenes Preset — Alt-Klick loescht es';
-      el.addEventListener('click', function (ev) {
-        if (ev.altKey && eigene[n]) {
-          delete eigene[n];
-          speicherPresets();
-          buildPresets();
-          say('Preset "' + n + '" geloescht');
-          return;
-        }
-        var pre = alleP()[n];
+    (function (n, eintrag) {
+      var row = document.createElement('div');
+      row.className = 'pr';
+      row.setAttribute('data-p', n);
+      var cv = document.createElement('canvas');
+      var nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = n;
+      var act = document.createElement('span');
+      act.className = 'act';
+      act.innerHTML = eintrag.eigen
+        ? '<i title="Duplizieren">⧉</i><i title="Umbenennen">✎</i><i title="Loeschen">×</i>'
+        : '<i title="Duplizieren">⧉</i>';
+      row.appendChild(cv); row.appendChild(nm); row.appendChild(act);
+      list.appendChild(row);
+      malKurve(cv, eintrag.werte);
+
+      row.addEventListener('click', function () {
+        var pre = alleP()[n].werte;
         for (var k in pre) if (vals.hasOwnProperty(k)) vals[k] = pre[k];
         refreshUI();
         t0 = Date.now();
         onChange(true);
       });
-      bar.appendChild(el);
-    })(name);
+
+      var icons = act.querySelectorAll('i');
+      icons[0].addEventListener('click', function (e) {   // duplizieren
+        e.stopPropagation();
+        var basis = n + ' Kopie', neuName = basis, i = 2;
+        while (eigene[neuName] || PRESETS[neuName]) { neuName = basis + ' ' + i; i++; }
+        var snap = {}, src = alleP()[n].werte;
+        for (var k in vals) snap[k] = (src[k] !== undefined ? src[k] : vals[k]);
+        eigene[neuName] = snap;
+        speicherPresets(); buildPresets();
+        say('Kopie angelegt: ' + neuName, 'ok');
+      });
+      if (eintrag.eigen) {
+        icons[1].addEventListener('click', function (e) {  // umbenennen
+          e.stopPropagation();
+          var inp = document.createElement('input');
+          inp.value = n;
+          row.replaceChild(inp, nm);
+          inp.focus(); inp.select();
+          var fertig = function (ok) {
+            var neuName = inp.value.replace(/^\s+|\s+$/g, '');
+            if (ok && neuName && neuName !== n && !eigene[neuName] && !PRESETS[neuName]) {
+              eigene[neuName] = eigene[n];
+              delete eigene[n];
+              speicherPresets();
+            }
+            buildPresets();
+          };
+          inp.addEventListener('keydown', function (ev) {
+            if (ev.key === 'Enter') fertig(true);
+            if (ev.key === 'Escape') fertig(false);
+          });
+          inp.addEventListener('blur', function () { fertig(true); });
+        });
+        icons[2].addEventListener('click', function (e) {  // loeschen
+          e.stopPropagation();
+          delete eigene[n];
+          speicherPresets(); buildPresets();
+          say('"' + n + '" geloescht');
+        });
+      }
+    })(name, all[name]);
   }
-  var plus = document.createElement('div');
-  plus.className = 'preset plus';
-  plus.textContent = '＋';
-  plus.title = 'Aktuelle Werte als eigenes Preset sichern';
-  plus.addEventListener('click', neuesPreset);
-  bar.appendChild(plus);
   markPreset();
 }
 
 function neuesPreset() {
-  var bar = document.getElementById('presets');
-  bar.innerHTML = '';
+  var list = document.getElementById('lib-list');
+  var row = document.createElement('div');
+  row.className = 'pr';
   var inp = document.createElement('input');
-  inp.className = 'preset-name';
   inp.placeholder = 'Name, dann Enter';
-  bar.appendChild(inp);
+  row.appendChild(inp);
+  list.insertBefore(row, list.firstChild);
   inp.focus();
-  inp.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { buildPresets(); return; }
-    if (e.key !== 'Enter') return;
+  var fertig = function (ok) {
     var n = inp.value.replace(/^\s+|\s+$/g, '');
-    if (!n) { buildPresets(); return; }
-    var snap = {};
-    for (var k in vals) snap[k] = vals[k];
-    eigene[n] = snap;
-    speicherPresets();
+    if (ok && n && !PRESETS[n]) {
+      var snap = {};
+      for (var k in vals) snap[k] = vals[k];
+      eigene[n] = snap;
+      speicherPresets();
+      say('Preset "' + n + '" gesichert', 'ok');
+    }
     buildPresets();
-    say('Preset "' + n + '" gesichert', 'ok');
+  };
+  inp.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') fertig(true);
+    if (e.key === 'Escape') fertig(false);
   });
-  inp.addEventListener('blur', function () { window.setTimeout(buildPresets, 120); });
+  inp.addEventListener('blur', function () { window.setTimeout(function () { fertig(true); }, 100); });
 }
 
 function ladePresets() {
@@ -263,14 +324,14 @@ function speicherPresets() {
 }
 
 function markPreset() {
-  var list = document.querySelectorAll('.preset');
+  var rows = document.querySelectorAll('.pr');
   var all = alleP();
-  for (var i = 0; i < list.length; i++) {
-    var pre = all[list[i].getAttribute('data-p')];
-    if (!pre) continue;
-    var hit = true;
+  for (var i = 0; i < rows.length; i++) {
+    var eintrag = all[rows[i].getAttribute('data-p')];
+    if (!eintrag) continue;
+    var pre = eintrag.werte, hit = true;
     for (var k in pre) if (Math.abs(vals[k] - pre[k]) > 0.001) { hit = false; break; }
-    if (hit) list[i].classList.add('on'); else list[i].classList.remove('on');
+    if (hit) rows[i].classList.add('on'); else rows[i].classList.remove('on');
   }
 }
 
@@ -408,6 +469,7 @@ draw();
 document.getElementById('stage').addEventListener('click', function () { t0 = Date.now(); });
 document.getElementById('replay').addEventListener('click', function (e) { e.stopPropagation(); t0 = Date.now(); });
 
+document.getElementById('lib-add').addEventListener('click', neuesPreset);
 buildPresets();
 ladePresets();
 

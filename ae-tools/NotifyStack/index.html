@@ -52,16 +52,31 @@
   #replay { position: absolute; right: 6px; top: 6px; font-size: 10px; color: var(--dim); padding: 3px 6px; }
   #replay:hover { color: var(--white); }
 
-  /* ---------- Presets ---------- */
-  #presets { display: flex; border-bottom: 1px solid var(--line); }
-  .preset { flex: 1 1 0; text-align: center; padding: 7px 2px; font-size: 11px; cursor: pointer; }
-  .preset:hover { color: var(--white); }
-  .preset.on { color: var(--blue); box-shadow: inset 0 -2px 0 0 var(--blue); }
-  .preset.plus { flex: 0 0 30px; color: var(--dim); font-size: 14px; }
-  .preset.plus:hover { color: var(--blue); }
-  .preset-name {
-    flex: 1 1 auto; background: var(--dark); border: 0; color: var(--white);
-    font: 11px inherit; padding: 7px 10px; outline: 1px solid var(--blue);
+  /* ---------- Preset-Bibliothek (Liste wie in Flow) ---------- */
+  #lib { border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+  #lib-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 7px 10px 5px; font-size: 10px; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--dim);
+  }
+  #lib-add { cursor: pointer; letter-spacing: 0; text-transform: none; font-size: 11px; }
+  #lib-add:hover { color: var(--blue); }
+  #lib-list { max-height: 148px; overflow-y: auto; }
+  .pr {
+    display: flex; align-items: center; gap: 8px; padding: 4px 10px;
+    cursor: pointer; font-size: 11px;
+  }
+  .pr:hover { background: var(--dark); }
+  .pr.on { color: var(--blue); box-shadow: inset 2px 0 0 0 var(--blue); }
+  .pr canvas { flex: 0 0 auto; width: 34px; height: 18px; background: var(--dark); }
+  .pr .nm { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pr .act { display: none; gap: 6px; flex: 0 0 auto; color: var(--dim); }
+  .pr:hover .act { display: flex; }
+  .pr .act i { font-style: normal; padding: 0 2px; }
+  .pr .act i:hover { color: var(--white); }
+  .pr input {
+    flex: 1 1 auto; background: var(--panel); border: 0; color: var(--white);
+    font: 11px inherit; padding: 2px 4px; outline: 1px solid var(--blue);
   }
 
   /* ---------- Gruppen ---------- */
@@ -134,7 +149,10 @@
     <div id="stageHint">Vorschau — rechnet exakt wie das Rig</div>
   </div>
 
-  <div id="presets"></div>
+  <div id="lib">
+    <div id="lib-head"><span>Presets</span><span id="lib-add">＋ sichern</span></div>
+    <div id="lib-list"></div>
+  </div>
 
   <div id="scroll"></div>
 

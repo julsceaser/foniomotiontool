@@ -4,6 +4,7 @@ import WavePage from './pages/WavePage'
 import StatesPage from './pages/StatesPage'
 import RenderPage from './pages/RenderPage'
 import ExportPage from './pages/ExportPage'
+import DotsPage from './pages/DotsPage'
 import { syncStatesFromFile } from './orbStates'
 
 function usePath(): [string, (p: string) => void] {
@@ -54,10 +55,11 @@ export default function App() {
         </div>
         {link('/', 'Orb')}
         {link('/wave', 'Soundwave')}
+        {link('/dots', 'Dots')}
         {link('/states', 'Zustände')}
         {link('/export', 'Export')}
       </nav>
-      {path === '/wave' ? <WavePage /> : path === '/states' ? <StatesPage /> : path === '/export' ? <ExportPage /> : <OrbPage />}
+      {path === '/wave' ? <WavePage /> : path === '/dots' ? <DotsPage /> : path === '/states' ? <StatesPage /> : path === '/export' ? <ExportPage /> : <OrbPage />}
     </>
   )
 }
