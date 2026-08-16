@@ -9,136 +9,196 @@
 
 /* global window, document, localStorage */
 
-// ---------------------------------------------------------------- Parameter
-// Reihenfolge = Reihenfolge im Panel. min/max/step/nachkomma.
+// ---------------------------------------------------------------- Aufbau
+// Gruppen folgen der Frage, die man sich beim Tunen stellt:
+// Wo sitzt der Stapel? Wie kommt die Neue rein? Wie reagieren die anderen?
+// Was passiert weiter oben?
+var GROUPS = [
+  { id: 'basis', titel: 'Grundaufbau',
+    sub: 'Wo der Stapel sitzt und wie eng die Karten liegen.' },
+  { id: 'neu', titel: 'Die neue Karte',
+    sub: 'Wie sie hereinkommt. Frequenz macht sie schneller, Daempfung nimmt das Nachwippen.' },
+  { id: 'oben', titel: 'Die Karten darueber',
+    sub: 'Wie sie ausweichen. Traeger als die Neue, sonst wackelt der ganze Stapel.' },
+  { id: 'tiefe', titel: 'Weiter oben im Stapel',
+    sub: 'Je mehr Karten nachkommen, desto kleiner und blasser wird eine Karte.' },
+];
+
 var PARAMS = [
-  { k: 'abstand',    g: 'Struktur',   label: 'Abstand',              min: 0,   max: 200, step: 1,    dec: 0, def: 14 },
-  { k: 'stapeln',    g: 'Struktur',   label: 'Stapeln oben (%)',     min: 0,   max: 100, step: 1,    dec: 0, def: 0 },
-  { k: 'stapelnAb',  g: 'Struktur',   label: 'Stapeln ab Karte',     min: 1,   max: 20,  step: 1,    dec: 0, def: 3 },
+  { k: 'abstand',   g: 'basis', label: 'Abstand',            min: 0,   max: 200, step: 1,    dec: 0, def: 14,
+    why: 'Luecke zwischen zwei Karten in Pixeln.' },
 
-  { k: 'einDist',    g: 'Einlauf',    label: 'Distanz von unten',    min: 0,   max: 800, step: 5,    dec: 0, def: 260 },
-  { k: 'einFreq',    g: 'Einlauf',    label: 'Frequenz',             min: 0.2, max: 5,   step: 0.05, dec: 2, def: 1.6 },
-  { k: 'einDamp',    g: 'Einlauf',    label: 'Daempfung',            min: 1,   max: 30,  step: 0.5,  dec: 1, def: 9 },
-  { k: 'einScale',   g: 'Einlauf',    label: 'Startgroesse (%)',     min: 50,  max: 130, step: 1,    dec: 0, def: 92 },
+  { k: 'einDist',   g: 'neu',   label: 'Kommt von weiter unten', min: 0, max: 800, step: 5,  dec: 0, def: 260,
+    why: 'Wie weit unterhalb ihrer Endposition die Karte startet.' },
+  { k: 'einScale',  g: 'neu',   label: 'Startgroesse (%)',    min: 50,  max: 130, step: 1,    dec: 0, def: 92,
+    why: 'Unter 100 schnappt sie auf, ueber 100 faellt sie zusammen.' },
+  { k: 'einFreq',   g: 'neu',   label: 'Frequenz',            min: 0.2, max: 5,   step: 0.05, dec: 2, def: 1.6,
+    why: 'Tempo der Feder. Hoch = schnell und spitz.' },
+  { k: 'einDamp',   g: 'neu',   label: 'Daempfung',           min: 1,   max: 30,  step: 0.5,  dec: 1, def: 9,
+    why: 'Niedrig = schwingt nach, hoch = kommt sofort zur Ruhe.' },
 
-  { k: 'ausFreq',    g: 'Ausweichen', label: 'Frequenz',             min: 0.2, max: 5,   step: 0.05, dec: 2, def: 1.15 },
-  { k: 'ausDamp',    g: 'Ausweichen', label: 'Daempfung',            min: 1,   max: 30,  step: 0.5,  dec: 1, def: 11 },
-  { k: 'versatz',    g: 'Ausweichen', label: 'Versatz pro Karte (F)', min: 0,  max: 10,  step: 0.5,  dec: 1, def: 1.5 },
+  { k: 'ausFreq',   g: 'oben',  label: 'Frequenz',            min: 0.2, max: 5,   step: 0.05, dec: 2, def: 1.15,
+    why: 'Tempo, mit dem die oberen Karten hochrutschen.' },
+  { k: 'ausDamp',   g: 'oben',  label: 'Daempfung',           min: 1,   max: 30,  step: 0.5,  dec: 1, def: 11,
+    why: 'Hoch halten — nachwippende obere Karten wirken unruhig.' },
+  { k: 'versatz',   g: 'oben',  label: 'Versatz pro Karte (Frames)', min: 0, max: 10, step: 0.5, dec: 1, def: 1.5,
+    why: 'Jede Karte weiter oben startet spaeter. Der Regler gegen die Monotonie.' },
 
-  { k: 'kleiner',    g: 'Tiefe',      label: 'Verkleinern pro Karte (%)', min: 0, max: 15, step: 0.5, dec: 1, def: 1.5 },
-  { k: 'blasser',    g: 'Tiefe',      label: 'Abblenden pro Karte (%)',   min: 0, max: 50, step: 1,   dec: 0, def: 6 },
-  { k: 'wegAb',      g: 'Tiefe',      label: 'Ausblenden ab Karte',       min: 1, max: 30, step: 1,   dec: 0, def: 5 },
+  { k: 'stapeln',   g: 'tiefe', label: 'Zusammenklappen (%)', min: 0,   max: 100, step: 1,    dec: 0, def: 0,
+    why: '0 = Karten wandern oben aus dem Bild, 100 = sie schieben sich zum Stapel zusammen.' },
+  { k: 'stapelnAb', g: 'tiefe', label: 'Klappt zu ab Karte',  min: 1,   max: 20,  step: 1,    dec: 0, def: 3,
+    why: 'Ab der wievielten Karte das Zusammenklappen voll wirkt.' },
+  { k: 'kleiner',   g: 'tiefe', label: 'Kleiner pro Karte (%)', min: 0, max: 15,  step: 0.5,  dec: 1, def: 1.5,
+    why: 'Schrumpfung je nachrueckender Karte. 1.5 heisst: nach drei Karten 95 Prozent.' },
+  { k: 'blasser',   g: 'tiefe', label: 'Blasser pro Karte (%)', min: 0, max: 50,  step: 1,    dec: 0, def: 6,
+    why: 'Deckkraft je nachrueckender Karte.' },
+  { k: 'wegAb',     g: 'tiefe', label: 'Ganz weg ab Karte',   min: 1,   max: 30,  step: 1,    dec: 0, def: 5,
+    why: 'Ab so vielen nachgerueckten Karten ist eine Karte unsichtbar.' },
+];
+
+// Schalter liegen bei ihrer Gruppe, nicht in einem eigenen Block
+var CHECKS = [
+  { k: 'dirUp', g: 'basis', label: 'Neue Karte kommt von unten', def: true },
+  { k: 'folgt', g: 'basis', label: 'Stapel sitzt auf dem Null',  def: true },
 ];
 
 var PRESETS = {
-  ios:     { einFreq: 1.6,  einDamp: 9,  ausFreq: 1.15, ausDamp: 11, versatz: 1.5, einScale: 92,  stapeln: 0,  kleiner: 1.5, blasser: 6 },
-  weich:   { einFreq: 1.0,  einDamp: 7,  ausFreq: 0.9,  ausDamp: 8,  versatz: 3,   einScale: 96,  stapeln: 0,  kleiner: 1,   blasser: 4 },
-  knackig: { einFreq: 2.2,  einDamp: 8,  ausFreq: 1.6,  ausDamp: 12, versatz: 1,   einScale: 88,  stapeln: 0,  kleiner: 2,   blasser: 8 },
-  bouncy:  { einFreq: 1.8,  einDamp: 5,  ausFreq: 1.3,  ausDamp: 7,  versatz: 2,   einScale: 84,  stapeln: 0,  kleiner: 2.5, blasser: 8 },
+  ios:     { einFreq: 1.6, einDamp: 9,  ausFreq: 1.15, ausDamp: 11, versatz: 1.5, einScale: 92, stapeln: 0, kleiner: 1.5, blasser: 6 },
+  weich:   { einFreq: 1.0, einDamp: 7,  ausFreq: 0.9,  ausDamp: 8,  versatz: 3,   einScale: 96, stapeln: 0, kleiner: 1,   blasser: 4 },
+  knackig: { einFreq: 2.2, einDamp: 8,  ausFreq: 1.6,  ausDamp: 12, versatz: 1,   einScale: 88, stapeln: 0, kleiner: 2,   blasser: 8 },
+  bouncy:  { einFreq: 1.8, einDamp: 5,  ausFreq: 1.3,  ausDamp: 7,  versatz: 2,   einScale: 84, stapeln: 0, kleiner: 2.5, blasser: 8 },
 };
 
-var LS = 'notifystack.v1';
-var vals = {};
-var dirUp = true;
-var folgt = true;      // gemeinsame Grundlinie am Null — sonst ueberlappen sich Karten
+var LS = 'notifystack.v2';
+var vals = {}, flags = {}, zu = {}, erklaer = false;
 var els = {};
 
-function loadVals() {
+function loadState() {
   for (var i = 0; i < PARAMS.length; i++) vals[PARAMS[i].k] = PARAMS[i].def;
+  for (var j = 0; j < CHECKS.length; j++) flags[CHECKS[j].k] = CHECKS[j].def;
   try {
-    var raw = localStorage.getItem(LS);
-    if (raw) {
-      var s = JSON.parse(raw);
-      for (var k in s.vals) if (vals.hasOwnProperty(k)) vals[k] = s.vals[k];
-      if (typeof s.dirUp === 'boolean') dirUp = s.dirUp;
-      if (typeof s.folgt === 'boolean') folgt = s.folgt;
-    }
+    var s = JSON.parse(localStorage.getItem(LS) || '{}');
+    for (var k in s.vals) if (vals.hasOwnProperty(k)) vals[k] = s.vals[k];
+    for (var f in s.flags) if (flags.hasOwnProperty(f)) flags[f] = s.flags[f];
+    if (s.zu) zu = s.zu;
+    if (typeof s.erklaer === 'boolean') erklaer = s.erklaer;
   } catch (e) { /* Voreinstellungen bleiben */ }
 }
-function saveVals() {
-  try { localStorage.setItem(LS, JSON.stringify({ vals: vals, dirUp: dirUp, folgt: folgt })); } catch (e) {}
+function saveState() {
+  try {
+    localStorage.setItem(LS, JSON.stringify({ vals: vals, flags: flags, zu: zu, erklaer: erklaer }));
+  } catch (e) {}
 }
 
-// ---------------------------------------------------------------- Regler bauen
-function buildRows() {
-  var targets = {
-    Struktur: document.getElementById('rowsStruktur'),
-    Einlauf: document.getElementById('rowsEinlauf'),
-    Ausweichen: document.getElementById('rowsAusweichen'),
-    Tiefe: document.getElementById('rowsTiefe'),
-  };
-  for (var i = 0; i < PARAMS.length; i++) {
-    (function (p) {
-      var row = document.createElement('div');
-      row.className = 'row';
-      row.innerHTML =
-        '<div class="top"><label>' + p.label + '</label>' +
-        '<input class="val" type="text" /></div>' +
-        '<input type="range" min="' + p.min + '" max="' + p.max + '" step="' + p.step + '" />';
-      targets[p.g].appendChild(row);
+// ---------------------------------------------------------------- Oberflaeche
+function buildUI() {
+  var scroll = document.getElementById('scroll');
+  for (var gi = 0; gi < GROUPS.length; gi++) {
+    (function (G) {
+      var grp = document.createElement('div');
+      grp.className = 'grp' + (zu[G.id] ? ' zu' : '');
+      grp.innerHTML =
+        '<div class="grp-head"><span class="tw">' + (zu[G.id] ? '▶' : '▼') + '</span><h2>' + G.titel + '</h2></div>' +
+        '<div class="grp-sub">' + G.sub + '</div>' +
+        '<div class="grp-body"></div>';
+      scroll.appendChild(grp);
+      var body = grp.querySelector('.grp-body');
 
-      var num = row.querySelector('.val');
-      var rng = row.querySelector('input[type=range]');
-      els[p.k] = { num: num, rng: rng, p: p };
+      grp.querySelector('.grp-head').addEventListener('click', function () {
+        zu[G.id] = !zu[G.id];
+        grp.className = 'grp' + (zu[G.id] ? ' zu' : '');
+        grp.querySelector('.tw').textContent = zu[G.id] ? '▶' : '▼';
+        saveState();
+      });
 
-      rng.addEventListener('input', function () {
-        vals[p.k] = parseFloat(rng.value);
-        num.value = vals[p.k].toFixed(p.dec);
-        onChange(false);
-      });
-      rng.addEventListener('change', function () { onChange(true); });
-      num.addEventListener('change', function () {
-        var v = parseFloat(num.value.replace(',', '.'));
-        if (isNaN(v)) v = p.def;
-        v = Math.max(p.min, Math.min(p.max, v));
-        vals[p.k] = v;
-        rng.value = v;
-        num.value = v.toFixed(p.dec);
-        onChange(true);
-      });
-    })(PARAMS[i]);
+      for (var c = 0; c < CHECKS.length; c++) {
+        if (CHECKS[c].g !== G.id) continue;
+        (function (C) {
+          var el = document.createElement('div');
+          el.className = 'check' + (flags[C.k] ? ' on' : '');
+          el.innerHTML = '<span class="box"></span><span>' + C.label + '</span>';
+          body.appendChild(el);
+          els['chk_' + C.k] = el;
+          el.addEventListener('click', function () {
+            flags[C.k] = !flags[C.k];
+            el.className = 'check' + (flags[C.k] ? ' on' : '');
+            onChange(true);
+          });
+        })(CHECKS[c]);
+      }
+
+      for (var i = 0; i < PARAMS.length; i++) {
+        if (PARAMS[i].g !== G.id) continue;
+        (function (p) {
+          var row = document.createElement('div');
+          row.className = 'row';
+          row.innerHTML =
+            '<div class="top"><label>' + p.label + '</label><input class="val" type="text" /></div>' +
+            '<input type="range" min="' + p.min + '" max="' + p.max + '" step="' + p.step + '" />' +
+            '<div class="why">' + p.why + '</div>';
+          row.setAttribute('title', p.why);
+          body.appendChild(row);
+
+          var num = row.querySelector('.val');
+          var rng = row.querySelector('input[type=range]');
+          els[p.k] = { num: num, rng: rng, p: p };
+
+          rng.addEventListener('input', function () {
+            vals[p.k] = parseFloat(rng.value);
+            num.value = vals[p.k].toFixed(p.dec);
+            onChange(false);
+          });
+          rng.addEventListener('change', function () { onChange(true); });
+          num.addEventListener('change', function () {
+            var v = parseFloat(num.value.replace(',', '.'));
+            if (isNaN(v)) v = p.def;
+            v = Math.max(p.min, Math.min(p.max, v));
+            vals[p.k] = v;
+            rng.value = v;
+            num.value = v.toFixed(p.dec);
+            onChange(true);
+          });
+        })(PARAMS[i]);
+      }
+    })(GROUPS[gi]);
   }
 }
 
 function refreshUI() {
-  for (var k in els) {
+  for (var i = 0; i < PARAMS.length; i++) {
+    var k = PARAMS[i].k;
     els[k].rng.value = vals[k];
     els[k].num.value = vals[k].toFixed(els[k].p.dec);
   }
-  var chk = document.getElementById('chkDir');
-  if (dirUp) chk.classList.add('on'); else chk.classList.remove('on');
-  var chk2 = document.getElementById('chkFollow');
-  if (folgt) chk2.classList.add('on'); else chk2.classList.remove('on');
+  for (var j = 0; j < CHECKS.length; j++) {
+    var c = CHECKS[j].k;
+    els['chk_' + c].className = 'check' + (flags[c] ? ' on' : '');
+  }
+  document.body.className = erklaer ? 'erklaer' : '';
+  var hb = document.getElementById('btnHelp');
+  if (erklaer) hb.classList.add('on'); else hb.classList.remove('on');
   markPreset();
 }
 
 function markPreset() {
   var list = document.querySelectorAll('.preset');
   for (var i = 0; i < list.length; i++) {
-    var name = list[i].getAttribute('data-p');
-    var pre = PRESETS[name], hit = true;
+    var pre = PRESETS[list[i].getAttribute('data-p')], hit = true;
     for (var k in pre) if (Math.abs(vals[k] - pre[k]) > 0.001) { hit = false; break; }
     if (hit) list[i].classList.add('on'); else list[i].classList.remove('on');
   }
 }
 
 // ---------------------------------------------------------------- Vorschau
-// Dieselbe Feder wie in der Expression.
 function spring(t, f, d) {
   if (t <= 0) return 0;
   var w = f * Math.PI * 2;
   return 1 - Math.exp(-d * t) * (Math.cos(w * t) + (d / w) * Math.sin(w * t));
 }
 
-// Beispielstapel: unterschiedliche Hoehen, damit man das Ungleichmaessige sieht
-var DEMO = [
-  { t: 0.0, h: 28 },
-  { t: 0.9, h: 44 },
-  { t: 1.7, h: 28 },
-  { t: 2.6, h: 36 },
-];
+var DEMO = [{ t: 0.0, h: 28 }, { t: 0.9, h: 44 }, { t: 1.7, h: 28 }, { t: 2.6, h: 36 }];
 var LOOP = 4.6;
-var SCALE = 0.17;   // Comp-Pixel -> Panel-Pixel, damit der Stapel in die Buehne passt
+var SCALE = 0.17;   // Comp-Pixel -> Panel-Pixel
 
 var cv = document.getElementById('preview');
 var ctx = cv.getContext('2d');
@@ -172,7 +232,7 @@ function draw() {
   var stackFrom = Math.max(1, vals.stapelnAb);
   var stag = vals.versatz / 30;
   var cardW = Math.min(W - 56, 210);
-  var baseY = H - 26;                         // Stapel sitzt unten, Platz fuer den Hinweis
+  var baseY = H - 26;
 
   for (var i = 0; i < DEMO.length; i++) {
     var me = DEMO[i];
@@ -197,7 +257,7 @@ function draw() {
     if (alpha <= 0.01) continue;
 
     var w = cardW * k, h = me.h * k;
-    var dir = dirUp ? 1 : -1;
+    var dir = flags.dirUp ? 1 : -1;
     var y = baseY - h + dir * (enter - push);
     var x = (W - w) / 2;
 
@@ -206,7 +266,6 @@ function draw() {
     roundRect(x, y, w, h, 9 * k);
     ctx.fill();
 
-    // angedeutete Zeilen, damit man Karten als Karten liest
     ctx.globalAlpha = Math.max(0, Math.min(1, alpha)) * 0.45;
     ctx.fillStyle = '#272727';
     roundRect(x + 8 * k, y + 7 * k, 22 * k, 4 * k, 2 * k); ctx.fill();
@@ -234,17 +293,15 @@ function evalES(code, cb) {
 function paramString() {
   var out = [];
   for (var k in vals) out.push(k + '=' + vals[k]);
-  out.push('dirUp=' + (dirUp ? 1 : 0));
-  out.push('folgt=' + (folgt ? 1 : 0));
+  for (var f in flags) out.push(f + '=' + (flags[f] ? 1 : 0));
   return out.join(';');
 }
 
 var syncTimer = null;
 function onChange(commit) {
-  saveVals();
+  saveState();
   markPreset();
   if (!commit) return;
-  // Werte live ans Rig schicken, damit die Comp mitzieht
   if (syncTimer) window.clearTimeout(syncTimer);
   syncTimer = window.setTimeout(function () {
     evalES('nsSetValues("' + paramString() + '")', function (r) {
@@ -256,8 +313,8 @@ function onChange(commit) {
 }
 
 // ---------------------------------------------------------------- Verdrahtung
-loadVals();
-buildRows();
+loadState();
+buildUI();
 refreshUI();
 fitCanvas();
 window.addEventListener('resize', fitCanvas);
@@ -265,18 +322,6 @@ draw();
 
 document.getElementById('stage').addEventListener('click', function () { t0 = Date.now(); });
 document.getElementById('replay').addEventListener('click', function (e) { e.stopPropagation(); t0 = Date.now(); });
-
-document.getElementById('chkDir').addEventListener('click', function () {
-  dirUp = !dirUp;
-  refreshUI();
-  onChange(true);
-});
-
-document.getElementById('chkFollow').addEventListener('click', function () {
-  folgt = !folgt;
-  refreshUI();
-  onChange(true);
-});
 
 var pres = document.querySelectorAll('.preset');
 for (var i = 0; i < pres.length; i++) {
@@ -289,16 +334,22 @@ for (var i = 0; i < pres.length; i++) {
   });
 }
 
-document.getElementById('btnSync').addEventListener('click', function () {
-  evalES('nsSetValues("' + paramString() + '")', function (r) {
-    say(r.indexOf('OK') === 0 ? 'Werte gesendet' : r, r.indexOf('OK') === 0 ? 'ok' : 'err');
+document.getElementById('btnHelp').addEventListener('click', function () {
+  erklaer = !erklaer;
+  refreshUI();
+  saveState();
+});
+
+document.getElementById('btnNew').addEventListener('click', function () {
+  say('lege Karte an …');
+  evalES('nsNewCard("' + paramString() + '")', function (r) {
+    if (r.indexOf('OK') === 0) say(r.substring(2), 'ok'); else say(r, 'err');
   });
 });
 
 document.getElementById('btnApply').addEventListener('click', function () {
   say('wird angewendet …');
   evalES('nsApply("' + paramString() + '")', function (r) {
-    if (r.indexOf('OK') === 0) say(r.substring(3), 'ok');
-    else say(r, 'err');
+    if (r.indexOf('OK') === 0) say(r.substring(2), 'ok'); else say(r, 'err');
   });
 });

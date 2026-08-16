@@ -222,6 +222,57 @@ function nsApply(paramStr) {
   return 'OK' + n + ' Karten verrigt — Ankunft = Layer-Anfang';
 }
 
+/**
+ * Neue Karte am Abspielkopf: dupliziert die ausgewaehlte Karte (sonst die
+ * zuletzt eingetroffene) und setzt ihren Anfang auf die aktuelle Zeit.
+ * Der haeufigste Handgriff — deshalb ein Knopf statt vier Schritte.
+ */
+function nsNewCard(paramStr) {
+  var comp = nsComp();
+  if (!comp) return 'Keine Komposition offen';
+
+  var tpl = null, i;
+  var sel = comp.selectedLayers;
+  for (i = 0; i < sel.length; i++) {
+    if (sel[i].name !== NS_CTRL) { tpl = sel[i]; break; }
+  }
+  if (!tpl) {                                  // nichts gewaehlt: juengste Karte nehmen
+    for (i = 1; i <= comp.numLayers; i++) {
+      var L = comp.layer(i);
+      if (L.name.indexOf(NS_PREFIX) !== 0) continue;
+      if (!tpl || L.inPoint > tpl.inPoint) tpl = L;
+    }
+  }
+  if (!tpl) return 'Keine Vorlage da — waehle die Karte aus, die dupliziert werden soll';
+
+  app.beginUndoGroup('Notify Stack — neue Karte');
+  var dup;
+  try {
+    var ctrl = nsEnsureCtrl(comp);
+    nsWrite(ctrl, nsParse(paramStr));
+
+    dup = tpl.duplicate();
+    dup.startTime += (comp.time - dup.inPoint);     // Ankunft = Abspielkopf
+    if (dup.name.indexOf(NS_PREFIX) !== 0) dup.name = NS_PREFIX + dup.name;
+    if (!dup.effect('Karte Hoehe')) {
+      var h = dup.Effects.addProperty('ADBE Slider Control');
+      h.name = 'Karte Hoehe';
+      h.property(1).setValue(0);
+    }
+    dup.transform.position.expression = nsExprPos();
+    dup.transform.scale.expression = nsExprScale();
+    dup.transform.opacity.expression = nsExprOpacity();
+
+    for (i = 1; i <= comp.numLayers; i++) comp.layer(i).selected = false;
+    dup.selected = true;
+  } catch (e) {
+    app.endUndoGroup();
+    return 'Fehler: ' + e.toString();
+  }
+  app.endUndoGroup();
+  return 'OK' + dup.name + ' bei ' + comp.time.toFixed(2) + 's';
+}
+
 /** Kurzinfo fuer die Statuszeile. */
 function nsInfo() {
   var comp = nsComp();
