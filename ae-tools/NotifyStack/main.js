@@ -71,6 +71,7 @@ var PRESETS = {
 
 var LS = 'notifystack.v2';
 var vals = {}, flags = {}, zu = {}, erklaer = false;
+var eigene = {};        // vom Nutzer gesicherte Presets (Datei via ExtendScript)
 var els = {};
 
 function loadState() {
@@ -180,10 +181,94 @@ function refreshUI() {
   markPreset();
 }
 
+function alleP() {
+  var all = {};
+  for (var k in PRESETS) all[k] = PRESETS[k];
+  for (var e in eigene) all[e] = eigene[e];
+  return all;
+}
+
+function buildPresets() {
+  var bar = document.getElementById('presets');
+  bar.innerHTML = '';
+  var all = alleP();
+  for (var name in all) {
+    (function (n) {
+      var el = document.createElement('div');
+      el.className = 'preset';
+      el.textContent = n.charAt(0).toUpperCase() + n.slice(1);
+      el.setAttribute('data-p', n);
+      if (eigene[n]) el.title = 'Eigenes Preset — Alt-Klick loescht es';
+      el.addEventListener('click', function (ev) {
+        if (ev.altKey && eigene[n]) {
+          delete eigene[n];
+          speicherPresets();
+          buildPresets();
+          say('Preset "' + n + '" geloescht');
+          return;
+        }
+        var pre = alleP()[n];
+        for (var k in pre) if (vals.hasOwnProperty(k)) vals[k] = pre[k];
+        refreshUI();
+        t0 = Date.now();
+        onChange(true);
+      });
+      bar.appendChild(el);
+    })(name);
+  }
+  var plus = document.createElement('div');
+  plus.className = 'preset plus';
+  plus.textContent = '＋';
+  plus.title = 'Aktuelle Werte als eigenes Preset sichern';
+  plus.addEventListener('click', neuesPreset);
+  bar.appendChild(plus);
+  markPreset();
+}
+
+function neuesPreset() {
+  var bar = document.getElementById('presets');
+  bar.innerHTML = '';
+  var inp = document.createElement('input');
+  inp.className = 'preset-name';
+  inp.placeholder = 'Name, dann Enter';
+  bar.appendChild(inp);
+  inp.focus();
+  inp.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { buildPresets(); return; }
+    if (e.key !== 'Enter') return;
+    var n = inp.value.replace(/^\s+|\s+$/g, '');
+    if (!n) { buildPresets(); return; }
+    var snap = {};
+    for (var k in vals) snap[k] = vals[k];
+    eigene[n] = snap;
+    speicherPresets();
+    buildPresets();
+    say('Preset "' + n + '" gesichert', 'ok');
+  });
+  inp.addEventListener('blur', function () { window.setTimeout(buildPresets, 120); });
+}
+
+function ladePresets() {
+  evalES('nsPresetsRead()', function (r) {
+    if (!r) return;
+    try { eigene = JSON.parse(decodeURIComponent(r)) || {}; } catch (e) { eigene = {}; }
+    buildPresets();
+  });
+}
+
+function speicherPresets() {
+  evalES('nsPresetsWrite("' + encodeURIComponent(JSON.stringify(eigene)) + '")', function (r) {
+    if (r.indexOf('OK') !== 0) say(r, 'err');
+  });
+}
+
 function markPreset() {
   var list = document.querySelectorAll('.preset');
+  var all = alleP();
   for (var i = 0; i < list.length; i++) {
-    var pre = PRESETS[list[i].getAttribute('data-p')], hit = true;
+    var pre = all[list[i].getAttribute('data-p')];
+    if (!pre) continue;
+    var hit = true;
     for (var k in pre) if (Math.abs(vals[k] - pre[k]) > 0.001) { hit = false; break; }
     if (hit) list[i].classList.add('on'); else list[i].classList.remove('on');
   }
@@ -323,16 +408,8 @@ draw();
 document.getElementById('stage').addEventListener('click', function () { t0 = Date.now(); });
 document.getElementById('replay').addEventListener('click', function (e) { e.stopPropagation(); t0 = Date.now(); });
 
-var pres = document.querySelectorAll('.preset');
-for (var i = 0; i < pres.length; i++) {
-  pres[i].addEventListener('click', function () {
-    var pre = PRESETS[this.getAttribute('data-p')];
-    for (var k in pre) vals[k] = pre[k];
-    refreshUI();
-    t0 = Date.now();
-    onChange(true);
-  });
-}
+buildPresets();
+ladePresets();
 
 document.getElementById('btnHelp').addEventListener('click', function () {
   erklaer = !erklaer;

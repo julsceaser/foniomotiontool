@@ -57,6 +57,12 @@
   .preset { flex: 1 1 0; text-align: center; padding: 7px 2px; font-size: 11px; cursor: pointer; }
   .preset:hover { color: var(--white); }
   .preset.on { color: var(--blue); box-shadow: inset 0 -2px 0 0 var(--blue); }
+  .preset.plus { flex: 0 0 30px; color: var(--dim); font-size: 14px; }
+  .preset.plus:hover { color: var(--blue); }
+  .preset-name {
+    flex: 1 1 auto; background: var(--dark); border: 0; color: var(--white);
+    font: 11px inherit; padding: 7px 10px; outline: 1px solid var(--blue);
+  }
 
   /* ---------- Gruppen ---------- */
   #scroll { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; }
@@ -128,12 +134,7 @@
     <div id="stageHint">Vorschau — rechnet exakt wie das Rig</div>
   </div>
 
-  <div id="presets">
-    <div class="preset" data-p="ios">iOS</div>
-    <div class="preset" data-p="weich">Weich</div>
-    <div class="preset" data-p="knackig">Knackig</div>
-    <div class="preset" data-p="bouncy">Bouncy</div>
-  </div>
+  <div id="presets"></div>
 
   <div id="scroll"></div>
 

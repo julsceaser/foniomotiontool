@@ -294,6 +294,39 @@ function nsNewCard(paramStr) {
   return 'OK' + dup.name + ' bei ' + comp.time.toFixed(2) + 's';
 }
 
+
+// ---------------------------------------------------------------- Eigene Presets
+// Liegen als Datei neben den AE-Einstellungen, nicht im Browser-Speicher des
+// Panels: so ueberleben sie eine Neuinstallation der Erweiterung.
+function nsPresetFile() {
+  var dir = new Folder(Folder.userData.fsName + '/de.yunussezer.notifystack');
+  if (!dir.exists) dir.create();
+  return new File(dir.fsName + '/presets.json');
+}
+
+function nsPresetsRead() {
+  try {
+    var f = nsPresetFile();
+    if (!f.exists) return '';
+    f.encoding = 'UTF-8';
+    f.open('r');
+    var txt = f.read();
+    f.close();
+    return encodeURIComponent(txt || '');
+  } catch (e) { return ''; }
+}
+
+function nsPresetsWrite(encoded) {
+  try {
+    var f = nsPresetFile();
+    f.encoding = 'UTF-8';
+    f.open('w');
+    f.write(decodeURIComponent(encoded));
+    f.close();
+    return 'OK' + f.fsName;
+  } catch (e) { return 'Fehler: ' + e.toString(); }
+}
+
 /** Kurzinfo fuer die Statuszeile. */
 function nsInfo() {
   var comp = nsComp();
