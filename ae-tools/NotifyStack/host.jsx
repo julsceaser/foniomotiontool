@@ -15,6 +15,7 @@ var NS_PREFIX = 'NC ';
 var NS_MAP = [
   ['abstand',   'Abstand',                'slider',   14],
   ['dirUp',     'Von unten',              'checkbox', 1],
+  ['folgt',     'Stapel folgt Null',      'checkbox', 1],
   ['stapeln',   'Stapeln oben',           'slider',   0],
   ['stapelnAb', 'Stapeln ab Karte',       'slider',   3],
   ['einDist',   'Einlauf Distanz',        'slider',   260],
@@ -101,6 +102,17 @@ function nsHead() {
     '  var w = f * Math.PI * 2;',
     '  return 1 - Math.exp(-d * t) * (Math.cos(w * t) + (d / w) * Math.sin(w * t));',
     '}',
+    '// Abstand vom Positionspunkt zur Unter- bzw. Oberkante der Karte.',
+    '// sourceRectAtTime liefert die Quellmasse mit top=0, der Drehpunkt steht',
+    '// separat — nur beides zusammen ergibt die echte Kante (in AE nachgemessen).',
+    'function edgeOff(L, bottom){',
+    '  var sc = 1, ap = 0, r = null;',
+    '  try { sc = Math.abs(L.transform.scale.value[1]) / 100; } catch(e){}',
+    '  try { ap = L.transform.anchorPoint.value[1]; } catch(e){}',
+    '  try { r = L.sourceRectAtTime(L.inPoint, false); } catch(e){}',
+    '  if (!r) return 0;',
+    '  return ((bottom ? (r.top + r.height) : r.top) - ap) * sc;',
+    '}',
     '// Die gemessene Hoehe wird mit der aktuellen Skalierung verrechnet. Da die',
     '// Tiefen-Verkleinerung ebenfalls auf die Skalierung wirkt, braucht eine',
     '// tief liegende Karte etwas weniger Platz — im Test 365 statt 368 px.',
@@ -134,7 +146,16 @@ function nsHead() {
 function nsExprPos() {
   return nsHead() + '\n' + [
     'var enter = (1 - born) * s("Einlauf Distanz");',
-    'value + [0, dirUp * (enter - push)]'
+    '// Mit "Stapel folgt Null" sitzen ALLE Karten auf einer gemeinsamen Grundlinie:',
+    '// der Y-Position des Nulls. Ohne das liegen Karten unterschiedlicher Hoehe bei',
+    '// gleicher Position verschieden tief und ueberlappen sich.',
+    'if (b("Stapel folgt Null")) {',
+    '  var baseY = C.transform.position[1];',
+    '  var edge = edgeOff(thisLayer, dirUp > 0);',
+    '  [value[0], baseY - edge + dirUp * (enter - push)]',
+    '} else {',
+    '  value + [0, dirUp * (enter - push)]',
+    '}'
   ].join('\n');
 }
 function nsExprScale() {

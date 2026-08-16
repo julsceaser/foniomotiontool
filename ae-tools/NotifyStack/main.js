@@ -40,6 +40,7 @@ var PRESETS = {
 var LS = 'notifystack.v1';
 var vals = {};
 var dirUp = true;
+var folgt = true;      // gemeinsame Grundlinie am Null — sonst ueberlappen sich Karten
 var els = {};
 
 function loadVals() {
@@ -50,11 +51,12 @@ function loadVals() {
       var s = JSON.parse(raw);
       for (var k in s.vals) if (vals.hasOwnProperty(k)) vals[k] = s.vals[k];
       if (typeof s.dirUp === 'boolean') dirUp = s.dirUp;
+      if (typeof s.folgt === 'boolean') folgt = s.folgt;
     }
   } catch (e) { /* Voreinstellungen bleiben */ }
 }
 function saveVals() {
-  try { localStorage.setItem(LS, JSON.stringify({ vals: vals, dirUp: dirUp })); } catch (e) {}
+  try { localStorage.setItem(LS, JSON.stringify({ vals: vals, dirUp: dirUp, folgt: folgt })); } catch (e) {}
 }
 
 // ---------------------------------------------------------------- Regler bauen
@@ -105,6 +107,8 @@ function refreshUI() {
   }
   var chk = document.getElementById('chkDir');
   if (dirUp) chk.classList.add('on'); else chk.classList.remove('on');
+  var chk2 = document.getElementById('chkFollow');
+  if (folgt) chk2.classList.add('on'); else chk2.classList.remove('on');
   markPreset();
 }
 
@@ -231,6 +235,7 @@ function paramString() {
   var out = [];
   for (var k in vals) out.push(k + '=' + vals[k]);
   out.push('dirUp=' + (dirUp ? 1 : 0));
+  out.push('folgt=' + (folgt ? 1 : 0));
   return out.join(';');
 }
 
@@ -263,6 +268,12 @@ document.getElementById('replay').addEventListener('click', function (e) { e.sto
 
 document.getElementById('chkDir').addEventListener('click', function () {
   dirUp = !dirUp;
+  refreshUI();
+  onChange(true);
+});
+
+document.getElementById('chkFollow').addEventListener('click', function () {
+  folgt = !folgt;
   refreshUI();
   onChange(true);
 });
