@@ -143,20 +143,49 @@ function nsHead() {
   ].join('\n');
 }
 
-function nsExprPos() {
+/**
+ * scalar = true, wenn die Position in X und Y getrennt ist. Dann liegt die
+ * Expression auf "Y-Position" und muss eine Zahl liefern statt eines Arrays.
+ */
+function nsExprPos(scalar) {
   return nsHead() + '\n' + [
     'var enter = (1 - born) * s("Einlauf Distanz");',
     '// Mit "Stapel folgt Null" sitzen ALLE Karten auf einer gemeinsamen Grundlinie:',
     '// der Y-Position des Nulls. Ohne das liegen Karten unterschiedlicher Hoehe bei',
     '// gleicher Position verschieden tief und ueberlappen sich.',
+    'var shift = dirUp * (enter - push);',
     'if (b("Stapel folgt Null")) {',
     '  var baseY = C.transform.position[1];',
-    '  var edge = edgeOff(thisLayer, dirUp > 0);',
-    '  [value[0], baseY - edge + dirUp * (enter - push)]',
+    '  var y = baseY - edgeOff(thisLayer, dirUp > 0) + shift;',
+    (scalar ? '  y' : '  [value[0], y]'),
     '} else {',
-    '  value + [0, dirUp * (enter - push)]',
+    (scalar ? '  value + shift' : '  value + [0, shift]'),
     '}'
   ].join('\n');
+}
+
+/** Expressions auf eine Karte legen. Gibt null zurueck oder den Grund fuers Ueberspringen. */
+function nsRig(L) {
+  if (L.locked) return 'gesperrt';
+  if (L.name.indexOf(NS_PREFIX) !== 0) L.name = NS_PREFIX + L.name;
+  if (!L.effect('Karte Hoehe')) {
+    var h = L.Effects.addProperty('ADBE Slider Control');
+    h.name = 'Karte Hoehe';
+    h.property(1).setValue(0);
+  }
+  var t = L.property('ADBE Transform Group');
+  var pos = t.property('ADBE Position');
+  var sep = false;
+  try { sep = pos.dimensionsSeparated; } catch (e) {}
+  if (sep) {
+    // getrennte Dimensionen: X bleibt unberuehrt, nur Y bekommt die Expression
+    t.property('ADBE Position_1').expression = nsExprPos(true);
+  } else {
+    pos.expression = nsExprPos(false);
+  }
+  t.property('ADBE Scale').expression = nsExprScale();
+  t.property('ADBE Opacity').expression = nsExprOpacity();
+  return null;
 }
 function nsExprScale() {
   return nsHead() + '\n' + [
@@ -194,32 +223,26 @@ function nsApply(paramStr) {
   if (!sel.length) return 'Bitte die Karten-Layer auswaehlen';
 
   app.beginUndoGroup('Notify Stack — anwenden');
-  var n = 0;
+  var n = 0, uebersprungen = '';
   try {
     var ctrl = nsEnsureCtrl(comp);
     nsWrite(ctrl, nsParse(paramStr));
 
-    var pos = nsExprPos(), sca = nsExprScale(), opa = nsExprOpacity();
+    var skip = [];
     for (var i = 0; i < sel.length; i++) {
       var L = sel[i];
       if (L.name === NS_CTRL) continue;
-      if (L.name.indexOf(NS_PREFIX) !== 0) L.name = NS_PREFIX + L.name;
-      if (!L.effect('Karte Hoehe')) {
-        var h = L.Effects.addProperty('ADBE Slider Control');
-        h.name = 'Karte Hoehe';
-        h.property(1).setValue(0);           // 0 = Hoehe automatisch messen
-      }
-      L.transform.position.expression = pos;
-      L.transform.scale.expression = sca;
-      L.transform.opacity.expression = opa;
+      var grund = nsRig(L);
+      if (grund) { skip.push(L.name + ' (' + grund + ')'); continue; }
       n++;
     }
+    if (skip.length) uebersprungen = ', uebersprungen: ' + skip.join(', ');
   } catch (e) {
     app.endUndoGroup();
     return 'Fehler: ' + e.toString();
   }
   app.endUndoGroup();
-  return 'OK' + n + ' Karten verrigt — Ankunft = Layer-Anfang';
+  return 'OK' + n + ' Karten verrigt — Ankunft = Layer-Anfang' + uebersprungen;
 }
 
 /**
@@ -253,15 +276,7 @@ function nsNewCard(paramStr) {
 
     dup = tpl.duplicate();
     dup.startTime += (comp.time - dup.inPoint);     // Ankunft = Abspielkopf
-    if (dup.name.indexOf(NS_PREFIX) !== 0) dup.name = NS_PREFIX + dup.name;
-    if (!dup.effect('Karte Hoehe')) {
-      var h = dup.Effects.addProperty('ADBE Slider Control');
-      h.name = 'Karte Hoehe';
-      h.property(1).setValue(0);
-    }
-    dup.transform.position.expression = nsExprPos();
-    dup.transform.scale.expression = nsExprScale();
-    dup.transform.opacity.expression = nsExprOpacity();
+    nsRig(dup);
 
     for (i = 1; i <= comp.numLayers; i++) comp.layer(i).selected = false;
     dup.selected = true;
