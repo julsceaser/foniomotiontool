@@ -8,6 +8,7 @@
  * bedienbar und laesst sich ganz normal keyframen.
  */
 
+var nsBusy = false;   // verhindert ueberlappende Aufrufe aus dem Panel
 var NS_CTRL = 'NOTIFY CTRL';
 var NS_PREFIX = 'NC ';
 
@@ -209,10 +210,15 @@ function nsSetValues(paramStr) {
   if (!comp) return 'Keine Komposition offen';
   var ctrl = nsFind(comp, NS_CTRL);
   if (!ctrl) return 'KEIN_RIG';
-  app.beginUndoGroup('Notify Stack — Werte');
+  // BEWUSST OHNE Undo-Gruppe: Beim Ziehen eines Reglers kommen viele Aufrufe
+  // kurz hintereinander. Jeder eigene begin/endUndoGroup hat den Undo-Stapel
+  // zerschossen ("Undo group mismatch") und ein Cmd+Z hat dann viel zu viel
+  // zurueckgenommen. Reine Reglerwerte gehoeren ohnehin nicht in den Verlauf.
+  if (nsBusy) return 'OK';
+  nsBusy = true;
   try { nsWrite(ctrl, nsParse(paramStr)); }
-  catch (e) { app.endUndoGroup(); return 'Fehler: ' + e.toString(); }
-  app.endUndoGroup();
+  catch (e) { nsBusy = false; return 'Fehler: ' + e.toString(); }
+  nsBusy = false;
   return 'OK';
 }
 
