@@ -86,16 +86,13 @@ function nsWrite(ctrl, p) {
 }
 
 // ---------------------------------------------------------------- Expressions
-function nsHead() {
+function nsKernExpr() {
   return [
     'var C = thisComp.layer("' + NS_CTRL + '");',
     'function s(n){ return C.effect(n)("Slider").value; }',
-    'function b(n){ return C.effect(n)("Checkbox").value; }',
     'var gap = s("Abstand");',
-    'var dirUp = b("Von unten") ? 1 : -1;',
     'var stackAmt = s("Stapeln oben")/100;',
     'var stackFrom = Math.max(1, s("Stapeln ab Karte"));',
-    'var fIn = s("Einlauf Frequenz"), dIn = s("Einlauf Daempfung");',
     'var fSh = s("Ausweichen Frequenz"), dSh = s("Ausweichen Daempfung");',
     'var stag = s("Versatz pro Karte") * thisComp.frameDuration;',
     'function spring(t, f, d){',
@@ -103,35 +100,9 @@ function nsHead() {
     '  var w = f * Math.PI * 2;',
     '  return 1 - Math.exp(-d * t) * (Math.cos(w * t) + (d / w) * Math.sin(w * t));',
     '}',
-    '// Abstand vom Positionspunkt zur Unter- bzw. Oberkante der Karte.',
-    '// sourceRectAtTime liefert die Quellmasse mit top=0, der Drehpunkt steht',
-    '// separat — nur beides zusammen ergibt die echte Kante (in AE nachgemessen).',
-    'function edgeOff(L, bottom){',
-    '  var sc = 1, ap = 0, r = null;',
-    '  try { sc = Math.abs(L.transform.scale.value[1]) / 100; } catch(e){}',
-    '  try { ap = L.transform.anchorPoint.value[1]; } catch(e){}',
-    '  try { r = L.sourceRectAtTime(L.inPoint, false); } catch(e){}',
-    '  if (!r) return 0;',
-    '  return ((bottom ? (r.top + r.height) : r.top) - ap) * sc;',
-    '}',
-    '// Die gemessene Hoehe wird mit der aktuellen Skalierung verrechnet. Da die',
-    '// Tiefen-Verkleinerung ebenfalls auf die Skalierung wirkt, braucht eine',
-    '// tief liegende Karte etwas weniger Platz — im Test 365 statt 368 px.',
-    '// Das ist gewollt: was kleiner aussieht, belegt auch weniger Raum.',
-    'function cardH(L){',
-    '  var manual = 0;',
-    '  try { manual = L.effect("Karte Hoehe")("Slider").value; } catch(e){}',
-    '  if (manual > 0) return manual;',
-    '  var sc = 1;',
-    '  try { sc = Math.abs(L.transform.scale.value[1]) / 100; } catch(e){}',
-    '  try { var r = L.sourceRectAtTime(L.inPoint, false); if (r.height > 0) return r.height * sc; } catch(e){}',
-    '  try { if (L.source && L.source.height) return L.source.height * sc; } catch(e){}',
-    '  return 120;',
-    '}',
-    '// Erst alle spaeteren Karten sammeln, DANN nach Ankunft sortieren.',
-    '// Die Ebenenreihenfolge sagt nichts ueber die Reihenfolge der Ankuenfte:',
-    '// vorher bekam ausgerechnet die Karte, die direkt nach dieser hier kam,',
-    '// den groessten Versatz — die unterste Karte rannte deshalb nicht mit.',
+    '// Erst sammeln, DANN nach Ankunft sortieren. Die Ebenenreihenfolge sagt',
+    '// nichts ueber die Reihenfolge der Ankuenfte — sonst bekommt ausgerechnet',
+    '// die Karte, die direkt nach dieser kommt, den groessten Versatz.',
     'var spaeter = [];',
     'for (var i = 1; i <= thisComp.numLayers; i++){',
     '  var L = thisComp.layer(i);',
@@ -145,11 +116,34 @@ function nsHead() {
     'for (var n = 0; n < spaeter.length; n++){',
     '  var Ln = spaeter[n];',
     '  var pr = spring(time - Ln.inPoint - n * stag, fSh, dSh);',
-    '  var squeeze = 1 - stackAmt * Math.min(1, n / stackFrom);',
-    '  push += (cardH(Ln) + gap) * squeeze * pr;',
+    '  var h = 120;',
+    '  try { h = Ln.effect("Karte Hoehe")("Slider").value; } catch(e){}',
+    '  push += (h + gap) * (1 - stackAmt * Math.min(1, n / stackFrom)) * pr;',
     '  depth += pr;',
     '}',
-    'var born = spring(time - inPoint, fIn, dIn);'
+    '[push, depth]'
+  ].join('\n');
+}
+
+/** Kopf fuer die drei Transform-Eigenschaften: liest nur noch den Kern-Regler. */
+function nsHead() {
+  return [
+    'var C = thisComp.layer("' + NS_CTRL + '");',
+    'function s(n){ return C.effect(n)("Slider").value; }',
+    'function b(n){ return C.effect(n)("Checkbox").value; }',
+    'function spring(t, f, d){',
+    '  if (t <= 0) return 0;',
+    '  var w = f * Math.PI * 2;',
+    '  return 1 - Math.exp(-d * t) * (Math.cos(w * t) + (d / w) * Math.sin(w * t));',
+    '}',
+    '// Schub und Tiefe kommen fertig aus "NS Intern" — dort laeuft die Schleife',
+    '// EINMAL pro Bild, statt in jeder der drei Eigenschaften erneut.',
+    'var kern = effect("NS Intern")("Point");',
+    'var push = kern[0], depth = kern[1];',
+    'var dirUp = b("Von unten") ? 1 : -1;',
+    'var born = spring(time - inPoint, s("Einlauf Frequenz"), s("Einlauf Daempfung"));',
+    'function cardH(L){ try { return L.effect("Karte Hoehe")("Slider").value; } catch(e){ return 120; } }',
+    'function cardTop(L){ try { return L.effect("Karte Oberkante")("Slider").value; } catch(e){ return -60; } }'
   ].join('\n');
 }
 
@@ -166,7 +160,8 @@ function nsExprPos(scalar) {
     'var shift = dirUp * (enter - push);',
     'if (b("Stapel folgt Null")) {',
     '  var baseY = C.transform.position[1];',
-    '  var y = baseY - edgeOff(thisLayer, dirUp > 0) + shift;',
+    '  var edge = (dirUp > 0) ? (cardTop(thisLayer) + cardH(thisLayer)) : cardTop(thisLayer);',
+    '  var y = baseY - edge + shift;',
     (scalar ? '  y' : '  [value[0], y]'),
     '} else {',
     (scalar ? '  value + shift' : '  value + [0, shift]'),
@@ -175,15 +170,38 @@ function nsExprPos(scalar) {
 }
 
 /** Expressions auf eine Karte legen. Gibt null zurueck oder den Grund fuers Ueberspringen. */
+function nsSlider(L, name, wert) {
+  var fx = L.effect(name);
+  if (!fx) { fx = L.Effects.addProperty('ADBE Slider Control'); fx.name = name; }
+  if (fx.property(1).numKeys === 0) fx.property(1).setValue(wert);
+  return fx;
+}
+
 function nsRig(L) {
   if (L.locked) return 'gesperrt';
   if (L.name.indexOf(NS_PREFIX) !== 0) L.name = NS_PREFIX + L.name;
-  if (!L.effect('Karte Hoehe')) {
-    var h = L.Effects.addProperty('ADBE Slider Control');
-    h.name = 'Karte Hoehe';
-    h.property(1).setValue(0);
-  }
   var t = L.property('ADBE Transform Group');
+
+  // Expressions zuerst abnehmen, sonst misst man das Ergebnis des alten Rigs
+  var weg = ['ADBE Position', 'ADBE Position_1', 'ADBE Scale', 'ADBE Opacity'];
+  for (var w = 0; w < weg.length; w++) {
+    try { var pw = t.property(weg[w]); if (pw && pw.expressionEnabled) pw.expression = ''; } catch (e) {}
+  }
+
+  // einmal messen statt in jedem Bild
+  var sc = 1, ap = 0, rect = null;
+  try { sc = Math.abs(t.property('ADBE Scale').value[1]) / 100; } catch (e) {}
+  try { ap = t.property('ADBE Anchor Point').value[1]; } catch (e) {}
+  try { rect = L.sourceRectAtTime(L.inPoint, false); } catch (e) {}
+  var hoehe = 120, oben = -60;
+  if (rect && rect.height > 0) { hoehe = rect.height * sc; oben = (rect.top - ap) * sc; }
+  else if (L.source && L.source.height) { hoehe = L.source.height * sc; oben = -ap * sc; }
+  nsSlider(L, 'Karte Hoehe', hoehe);
+  nsSlider(L, 'Karte Oberkante', oben);
+
+  var kern = L.effect('NS Intern');
+  if (!kern) { kern = L.Effects.addProperty('ADBE Point Control'); kern.name = 'NS Intern'; }
+  kern.property(1).expression = nsKernExpr();
   var pos = t.property('ADBE Position');
   var sep = false;
   try { sep = pos.dimensionsSeparated; } catch (e) {}
@@ -374,6 +392,8 @@ function nsClear() {
         } catch (e) {}
       }
       try { if (L.effect('Karte Hoehe')) L.effect('Karte Hoehe').remove(); } catch (e) {}
+      try { if (L.effect('Karte Oberkante')) L.effect('Karte Oberkante').remove(); } catch (e) {}
+      try { if (L.effect('NS Intern')) L.effect('NS Intern').remove(); } catch (e) {}
       L.name = L.name.substring(NS_PREFIX.length);
       n++;
     }
