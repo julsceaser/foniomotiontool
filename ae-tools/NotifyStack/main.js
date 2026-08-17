@@ -342,8 +342,11 @@ function spring(t, f, d) {
   return 1 - Math.exp(-d * t) * (Math.cos(w * t) + (d / w) * Math.sin(w * t));
 }
 
-var DEMO = [{ t: 0.0, h: 28 }, { t: 0.9, h: 44 }, { t: 1.7, h: 28 }, { t: 2.6, h: 36 }];
-var LOOP = 4.6;
+// Takt der Demo: kurz leer, dann vier Karten dicht hintereinander, kurz stehen,
+// dann von vorn. Vorher stand die erste Karte fast eine Sekunde allein herum —
+// das sah aus wie ein vergessenes Element, nicht wie der Anfang einer Bewegung.
+var DEMO = [{ t: 0.2, h: 28 }, { t: 0.7, h: 44 }, { t: 1.2, h: 28 }, { t: 1.7, h: 36 }];
+var LOOP = 3.2;
 var SCALE = 0.17;   // Comp-Pixel -> Panel-Pixel
 
 var cv = document.getElementById('preview');
