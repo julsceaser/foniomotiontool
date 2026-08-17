@@ -79,6 +79,37 @@
     font: 11px inherit; padding: 2px 4px; outline: 1px solid var(--blue);
   }
 
+  /* ---------- Kartenbaukasten ---------- */
+  #bau { border-bottom: 1px solid var(--line); }
+  #bau-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 10px 6px; font-size: 10px; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--dim); cursor: pointer;
+  }
+  #bau-head:hover { color: var(--white); }
+  #bau-body { padding: 0 10px 10px; display: none; }
+  #bau.auf #bau-body { display: block; }
+  #bau-vorschau {
+    width: 100%; height: 96px; background: var(--dark); margin-bottom: 8px;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  #bau-vorschau img { max-width: 100%; max-height: 100%; }
+  #bau-vorschau span { font-size: 10px; color: var(--dim); }
+  .feld { margin-bottom: 6px; }
+  .feld label { display: block; font-size: 10px; color: var(--dim); margin-bottom: 2px; }
+  .feld input, .feld select {
+    width: 100%; background: var(--dark); border: 0; color: var(--white);
+    font: 11px inherit; padding: 4px 6px;
+  }
+  .feld input:focus, .feld select:focus { outline: 1px solid var(--blue); }
+  .bau-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .bau-actions div {
+    flex: 1 1 0; text-align: center; padding: 7px 4px; font-size: 11px;
+    background: var(--dark); cursor: pointer;
+  }
+  .bau-actions div:hover { color: var(--white); }
+  .bau-actions div.prim { background: var(--blue); color: var(--white); }
+
   /* ---------- Gruppen ---------- */
   #scroll { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; }
   .grp { border-bottom: 1px solid var(--line); }
@@ -154,7 +185,21 @@
     <div id="lib-list"></div>
   </div>
 
-  <div id="scroll"></div>
+  <div id="scroll">
+    <div id="bau">
+      <div id="bau-head"><span>Neue Karte bauen</span><span class="tw">▶</span></div>
+      <div id="bau-body">
+        <div id="bau-vorschau"><span>noch keine Vorschau</span></div>
+        <div class="feld"><label>Vorlage (Komposition)</label><select id="bau-vorlage"></select></div>
+        <div id="bau-felder"></div>
+        <div class="feld"><label>Name der neuen Karte</label><input id="bau-name" placeholder="z. B. WhatsApp 1" /></div>
+        <div class="bau-actions">
+          <div id="bau-preview">Vorschau</div>
+          <div id="bau-add" class="prim">＋ Karte</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div id="foot">
     <div id="status">Bereit</div>

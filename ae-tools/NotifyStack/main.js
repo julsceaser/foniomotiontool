@@ -461,6 +461,131 @@ function onChange(commit) {
   }, 120);
 }
 
+
+// ---------------------------------------------------------------- Kartenbaukasten
+// Die Vorlage ist immer eine Komposition aus dem Projekt — es wird kein
+// Kartendesign erfunden, nur Texte und Bilder darin ausgetauscht.
+var bauFelder = [];      // {art, ebene, wert}
+var bauFootage = [];
+var letzteKarte = null;  // zuletzt gebaute Karte
+var letzteSig = null;
+
+function bauSig() {
+  var v = document.getElementById('bau-vorlage').value + '|' + document.getElementById('bau-name').value;
+  for (var i = 0; i < bauFelder.length; i++) {
+    var el = document.getElementById('bf' + i);
+    v += '|' + (el ? el.value : '');
+  }
+  return v;
+}
+
+function ladeVorlagen() {
+  evalES('nsListComps()', function (r) {
+    var sel = document.getElementById('bau-vorlage');
+    sel.innerHTML = '';
+    var liste = decodeURIComponent(r || '').split(';;');
+    for (var i = 0; i < liste.length; i++) {
+      if (!liste[i]) continue;
+      var t = liste[i].split('|||');
+      var o = document.createElement('option');
+      o.value = t[0];
+      o.textContent = t[0] + '  (' + t[1] + 'x' + t[2] + ')';
+      sel.appendChild(o);
+    }
+    if (sel.options.length) ladeFelder();
+  });
+  evalES('nsListFootage()', function (r) {
+    bauFootage = decodeURIComponent(r || '').split(';;');
+  });
+}
+
+function ladeFelder() {
+  var name = document.getElementById('bau-vorlage').value;
+  evalES('nsCardFields("' + encodeURIComponent(name) + '")', function (r) {
+    var box = document.getElementById('bau-felder');
+    box.innerHTML = '';
+    bauFelder = [];
+    var liste = decodeURIComponent(r || '').split(';;');
+    for (var i = 0; i < liste.length; i++) {
+      if (!liste[i]) continue;
+      var t = liste[i].split('|||');
+      if (t.length < 3) continue;
+      bauFelder.push({ art: t[0], ebene: t[1], wert: t[2] });
+    }
+    for (var i = 0; i < bauFelder.length; i++) {
+      var f = bauFelder[i];
+      var d = document.createElement('div');
+      d.className = 'feld';
+      if (f.art === 'text') {
+        d.innerHTML = '<label>' + f.ebene + '</label><input id="bf' + i + '" />';
+        box.appendChild(d);
+        document.getElementById('bf' + i).value = f.wert;
+      } else {
+        var opts = '';
+        for (var k = 0; k < bauFootage.length; k++) {
+          if (!bauFootage[k]) continue;
+          opts += '<option' + (bauFootage[k] === f.wert ? ' selected' : '') + '>' + bauFootage[k] + '</option>';
+        }
+        d.innerHTML = '<label>' + f.ebene + ' (Bild)</label><select id="bf' + i + '">' + opts + '</select>';
+        box.appendChild(d);
+      }
+    }
+    if (!document.getElementById('bau-name').value) {
+      document.getElementById('bau-name').value = name + ' Karte';
+    }
+  });
+}
+
+function bauArgument() {
+  var teile = [document.getElementById('bau-vorlage').value, document.getElementById('bau-name').value];
+  var bild = '';
+  var texte = [];
+  for (var i = 0; i < bauFelder.length; i++) {
+    var el = document.getElementById('bf' + i);
+    if (!el) continue;
+    if (bauFelder[i].art === 'bild') bild = bauFelder[i].ebene + '|||' + el.value;
+    else texte.push(bauFelder[i].ebene + '|||' + el.value);
+  }
+  teile.push(bild);
+  return teile.concat(texte).join(';;');
+}
+
+function karteBauen(danach) {
+  var sig = bauSig();
+  if (letzteKarte && sig === letzteSig) { danach(letzteKarte); return; }
+  say('baue Karte …');
+  evalES('nsCardBuild("' + encodeURIComponent(bauArgument()) + '")', function (r) {
+    if (r.indexOf('OK') !== 0) { say(r, 'err'); return; }
+    letzteKarte = r.substring(2);
+    letzteSig = sig;
+    danach(letzteKarte);
+  });
+}
+
+function bauVorschau() {
+  karteBauen(function (name) {
+    evalES('nsCardPreview("' + encodeURIComponent(name) + '")', function (r) {
+      if (r.indexOf('OK') !== 0) { say(r, 'err'); return; }
+      var box = document.getElementById('bau-vorschau');
+      box.innerHTML = '';
+      var img = document.createElement('img');
+      img.src = 'file://' + r.substring(2) + '?' + Date.now();
+      box.appendChild(img);
+      say('Vorschau: ' + name, 'ok');
+    });
+  });
+}
+
+function bauEinfuegen() {
+  karteBauen(function (name) {
+    evalES('nsCardPlace("' + encodeURIComponent(name + ';;' + paramString()) + '")', function (r) {
+      if (r.indexOf('OK') !== 0) { say(r, 'err'); return; }
+      say(r.substring(2), 'ok');
+      letzteKarte = null; letzteSig = null;   // naechste Karte wird neu gebaut
+    });
+  });
+}
+
 // ---------------------------------------------------------------- Verdrahtung
 loadState();
 buildUI();
@@ -473,6 +598,19 @@ document.getElementById('stage').addEventListener('click', function () { t0 = Da
 document.getElementById('replay').addEventListener('click', function (e) { e.stopPropagation(); t0 = Date.now(); });
 
 document.getElementById('lib-add').addEventListener('click', neuesPreset);
+
+document.getElementById('bau-head').addEventListener('click', function () {
+  var b = document.getElementById('bau');
+  var auf = b.className.indexOf('auf') < 0;
+  b.className = auf ? 'auf' : '';
+  b.querySelector('.tw').textContent = auf ? '▼' : '▶';
+  if (auf && !document.getElementById('bau-vorlage').options.length) ladeVorlagen();
+});
+document.getElementById('bau-vorlage').addEventListener('change', function () {
+  letzteKarte = null; document.getElementById('bau-name').value = ''; ladeFelder();
+});
+document.getElementById('bau-preview').addEventListener('click', bauVorschau);
+document.getElementById('bau-add').addEventListener('click', bauEinfuegen);
 buildPresets();
 ladePresets();
 

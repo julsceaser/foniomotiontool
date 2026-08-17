@@ -409,6 +409,151 @@ function nsClear() {
   return 'OK' + n + (alle ? ' Karten geloest, Null entfernt' : ' Karten geloest');
 }
 
+
+// ---------------------------------------------------------------- Kartenbaukasten
+// Es wird KEIN Kartendesign erfunden: als Vorlage dient immer eine Komposition
+// aus dem Projekt. Der Baukasten tauscht nur Texte und Bilder aus.
+// Trenner: Datensaetze mit ";;", Felder mit "|||".
+
+/** Alle Kompositionen, die als Kartenvorlage taugen. */
+function nsListComps() {
+  var out = [];
+  for (var i = 1; i <= app.project.numItems; i++) {
+    var it = app.project.item(i);
+    if (!(it instanceof CompItem)) continue;
+    if (it.name.indexOf('NOTIFY') === 0) continue;
+    out.push(it.name + '|||' + it.width + '|||' + it.height);
+  }
+  return encodeURIComponent(out.join(';;'));
+}
+
+function nsFindComp(name) {
+  for (var i = 1; i <= app.project.numItems; i++) {
+    var it = app.project.item(i);
+    if (it instanceof CompItem && it.name === name) return it;
+  }
+  return null;
+}
+
+/** Text- und Bildebenen einer Vorlage, damit das Panel Felder anbieten kann. */
+function nsCardFields(encName) {
+  var comp = nsFindComp(decodeURIComponent(encName));
+  if (!comp) return '';
+  var out = [];
+  for (var i = 1; i <= comp.numLayers; i++) {
+    var L = comp.layer(i);
+    var txt = null;
+    try { txt = L.property('ADBE Text Properties').property('ADBE Text Document'); } catch (e) {}
+    if (txt) { out.push('text|||' + L.name + '|||' + txt.value.text); continue; }
+    if (L.source && (L.source instanceof FootageItem)) out.push('bild|||' + L.name + '|||' + L.source.name);
+  }
+  return encodeURIComponent(out.join(';;'));
+}
+
+/** Alle Bilder im Projekt, zur Auswahl fuer Logo und Avatar. */
+function nsListFootage() {
+  var out = [];
+  for (var i = 1; i <= app.project.numItems; i++) {
+    var it = app.project.item(i);
+    if (it instanceof FootageItem) out.push(it.name);
+  }
+  return encodeURIComponent(out.join(';;'));
+}
+
+function nsSetzeTexte(comp, paare) {
+  for (var i = 0; i < paare.length; i++) {
+    var teil = paare[i].split('|||');
+    if (teil.length < 2) continue;
+    for (var L = 1; L <= comp.numLayers; L++) {
+      var lay = comp.layer(L);
+      if (lay.name !== teil[0]) continue;
+      try {
+        var prop = lay.property('ADBE Text Properties').property('ADBE Text Document');
+        var td = prop.value;
+        td.text = teil[1];
+        prop.setValue(td);
+      } catch (e) {}
+      break;
+    }
+  }
+}
+
+function nsSetzeBild(comp, layerName, footageName) {
+  var quelle = null;
+  for (var i = 1; i <= app.project.numItems; i++) {
+    var it = app.project.item(i);
+    if (it instanceof FootageItem && it.name === footageName) { quelle = it; break; }
+  }
+  if (!quelle) return;
+  for (var L = 1; L <= comp.numLayers; L++) {
+    if (comp.layer(L).name !== layerName) continue;
+    try { comp.layer(L).replaceSource(quelle, false); } catch (e) {}
+    break;
+  }
+}
+
+/**
+ * Karte bauen: Vorlage duplizieren, Texte und Bild ersetzen.
+ * Argument (URL-kodiert), Datensaetze mit ";;":
+ *   vorlage ;; kartenname ;; bildLayer|||bildName ;; ebenenname|||text ...
+ */
+function nsCardBuild(arg) {
+  var teile = decodeURIComponent(arg).split(';;');
+  var vorlage = nsFindComp(teile[0]);
+  if (!vorlage) return 'Vorlage nicht gefunden';
+  var kartenName = teile[1] || (vorlage.name + ' Karte');
+
+  app.beginUndoGroup('Notify Stack - Karte bauen');
+  var neu;
+  try {
+    neu = vorlage.duplicate();
+    neu.name = kartenName;
+    if (teile[2]) {
+      var b = teile[2].split('|||');
+      if (b.length === 2 && b[1]) nsSetzeBild(neu, b[0], b[1]);
+    }
+    nsSetzeTexte(neu, teile.slice(3));
+  } catch (e) { app.endUndoGroup(); return 'Fehler: ' + e.toString(); }
+  app.endUndoGroup();
+  return 'OK' + neu.name;
+}
+
+/** Rendert ein Bild der Karte fuer die Panel-Vorschau und gibt den Pfad zurueck. */
+function nsCardPreview(encName) {
+  var comp = nsFindComp(decodeURIComponent(encName));
+  if (!comp) return 'Komposition nicht gefunden';
+  try {
+    var dir = new Folder(Folder.temp.fsName + '/notifystack');
+    if (!dir.exists) dir.create();
+    var f = new File(dir.fsName + '/vorschau_' + (new Date().getTime()) + '.png');
+    comp.saveFrameToPng(0, f);
+    return 'OK' + f.fsName;
+  } catch (e) { return 'Fehler: ' + e.toString(); }
+}
+
+/** Karte in die aktive Komposition legen, am Abspielkopf, fertig verrigt. */
+function nsCardPlace(arg) {
+  var teile = decodeURIComponent(arg).split(';;');
+  var karte = nsFindComp(teile[0]);
+  var comp = nsComp();
+  if (!karte) return 'Karte nicht gefunden';
+  if (!comp) return 'Keine Komposition offen';
+
+  app.beginUndoGroup('Notify Stack - Karte einfuegen');
+  var L;
+  try {
+    var ctrl = nsEnsureCtrl(comp);
+    if (teile[1]) nsWrite(ctrl, nsParse(teile[1]));
+    L = comp.layers.add(karte);
+    L.startTime += (comp.time - L.inPoint);
+    nsRig(L);
+    for (var i = 1; i <= comp.numLayers; i++) comp.layer(i).selected = false;
+    L.selected = true;
+  } catch (e) { app.endUndoGroup(); return 'Fehler: ' + e.toString(); }
+  app.endUndoGroup();
+  return 'OK' + L.name + ' bei ' + comp.time.toFixed(2) + 's';
+}
+
 /** Kurzinfo fuer die Statuszeile. */
 function nsInfo() {
   var comp = nsComp();
