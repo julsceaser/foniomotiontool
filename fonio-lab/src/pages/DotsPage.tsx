@@ -72,16 +72,11 @@ const BASE_SHAPES: Record<string, ShapeDef> = {
     const y = 13 * Math.cos(u) - 5 * Math.cos(2 * u) - 2 * Math.cos(3 * u) - Math.cos(4 * u)
     return [0.5 + x * 0.022, 0.47 - y * 0.022]
   })] },
-  Check: { kind: 'path', paths: [[[0.16, 0.52], [0.4, 0.74], [0.84, 0.24]]] },
-  Pfeil: { kind: 'path', paths: [
-    [[0.1, 0.5], [0.86, 0.5]],
-    [[0.62, 0.28], [0.88, 0.5], [0.62, 0.72]],
-  ] },
-  X: { kind: 'path', paths: [
-    [[0.2, 0.2], [0.8, 0.8]],
-    [[0.8, 0.2], [0.2, 0.8]],
-  ] },
-  Zickzack: { kind: 'path', paths: [[[0.08, 0.62], [0.3, 0.36], [0.5, 0.62], [0.7, 0.36], [0.92, 0.62]]] },
+  // Ecken-Formen: kuratierte 8×8-Patterns (werden auf andere Grids skaliert)
+  Check: { kind: 'grid', size: 8, cells: [25, 34, 43, 36, 29, 22, 15] },
+  Pfeil: { kind: 'grid', size: 8, cells: [24, 25, 26, 27, 28, 29, 13, 22, 31, 38, 45] },
+  X: { kind: 'grid', size: 8, cells: [0, 9, 18, 27, 36, 45, 54, 63, 7, 14, 21, 28, 35, 42, 49, 56] },
+  Zickzack: { kind: 'grid', size: 8, cells: [40, 33, 26, 35, 44, 37, 30, 39] },
   Scheibe: { kind: 'cloud', gen: (n) => Array.from({ length: n }, (_, i) => {
     const a = i * GA
     const r = 0.4 * Math.sqrt((i + 0.5) / n)
@@ -190,7 +185,7 @@ type Verteilung = 'anzahl' | 'abstand'
 type Params = {
   weg: number; organik: number; ruecksicht: number; welle: number
   tempo: number; groesse: number; anzahl: number
-  raster: boolean; gridSize: number; fuellung: number
+  raster: boolean; gridSize: number; fuellung: number; ensemble: number
   verteilung: Verteilung; abstandPx: number
   colorsA: StateColors; colorsB: StateColors
   flug: boolean; flugFarbe: string
@@ -202,7 +197,7 @@ type Params = {
 const DEFAULTS: Params = {
   weg: 0.35, organik: 0.25, ruecksicht: 0.3, welle: 0.4,
   tempo: 1.6, groesse: 9, anzahl: 120,
-  raster: true, gridSize: 8, fuellung: 1.02,
+  raster: true, gridSize: 8, fuellung: 1.02, ensemble: 16,
   verteilung: 'anzahl', abstandPx: 40,
   colorsA: { base: CI.ink, accent: CI.brand, amount: 0.15, pattern: 'zufall' },
   colorsB: { base: CI.ink, accent: CI.green, amount: 0.25, pattern: 'letzte' },
@@ -262,8 +257,11 @@ function rasterize(def: ShapeDef, g: number): Pt[] {
         })))
     return cells.map((i) => cellCenter(i, g))
   }
-  if (def.kind === 'path') raw = samplePathsBySpacing(def.paths, (GRID_AREA / g) * 0.85)
-  else raw = def.gen(g * g)
+  // Kurven-Formen: Punkte sitzen AUF dem Pfad, Schrittmaß = Zellgröße
+  // (konsistente Abstände, aber ein Kreis bleibt wirklich rund).
+  if (def.kind === 'path') return samplePathsBySpacing(def.paths, GRID_AREA / g)
+  // Wolken (Bilder, Streu …): aufs Grid gesnappt = Pixel-Look
+  raw = def.gen(g * g)
   const seen = new Set<number>()
   const out: Pt[] = []
   for (const q of raw) {
@@ -293,11 +291,60 @@ function buildDots(p: Params, registry: Record<string, ShapeDef>): { dots: Dot[]
   const defB = registry[p.shapeB] || BASE_SHAPES.Kreis
   const [W, H] = FORMATS[p.format]
   const S = Math.min(W, H)
-  let A = pointsFor(defA, p, S)
-  let B = pointsFor(defB, p, S)
-  const nA = A.length; const nB = B.length
-  const n = Math.max(A.length, B.length)
-  A = resample(A, n); B = resample(B, n)
+  let A: Pt[]; let B: Pt[]
+  let nA: number; let nB: number
+  if (p.raster) {
+    // ENSEMBLE: feste Truppe — jede Form hat EXAKT N sichtbare Plätze.
+    // Zu kleine Patterns werden mit Nachbarzellen aufgefüllt (Form wird
+    // minimal dicker), zu große gleichmäßig ausgedünnt — nie gestapelt.
+    const N = Math.max(1, p.ensemble)
+    const g = p.gridSize
+    const padGridCells = (cells: number[], target: number): number[] => {
+      if (cells.length > target) {
+        const r: number[] = []
+        for (let i = 0; i < target; i++) r.push(cells[Math.floor((i * cells.length) / target)])
+        return r
+      }
+      const out = cells.slice()
+      const used = new Set(out)
+      let k = 0
+      while (out.length < target && k < 600) {
+        const pos = k % out.length
+        const src = out[pos]
+        const c = src % g; const r = Math.floor(src / g)
+        let placed = false
+        for (let ring = 1; ring <= 3 && !placed; ring++) {
+          for (let dr = -ring; dr <= ring && !placed; dr++) {
+            for (let dc = -ring; dc <= ring && !placed; dc++) {
+              if (Math.max(Math.abs(dr), Math.abs(dc)) !== ring) continue
+              const nr = r + dr; const nc = c + dc
+              if (nr < 0 || nc < 0 || nr >= g || nc >= g) continue
+              const idx = nr * g + nc
+              if (used.has(idx)) continue
+              used.add(idx)
+              out.splice(pos + 1, 0, idx)
+              placed = true
+            }
+          }
+        }
+        k++
+      }
+      return out
+    }
+    const ptsExact = (def: ShapeDef): Pt[] => {
+      if (def.kind === 'path') return samplePathsByCount(def.paths, N)
+      const cells = rasterize(def, g).map((q) => snapCell(q, g))
+      return padGridCells(Array.from(new Set(cells)), N).map((i) => cellCenter(i, g))
+    }
+    A = ptsExact(defA); B = ptsExact(defB)
+    nA = N; nB = N
+  } else {
+    A = pointsFor(defA, p, S)
+    B = pointsFor(defB, p, S)
+    nA = A.length; nB = B.length
+    const n = Math.max(A.length, B.length)
+    A = resample(A, n); B = resample(B, n)
+  }
   // Matching: Pfad→Pfad folgt der Pfad-Reihenfolge (schöne Wellen),
   // sobald eine Wolke beteiligt ist, wird nach Winkel gepaart (kurze Wege).
   const bothPaths = defA.kind !== 'cloud' && defB.kind !== 'cloud'
@@ -314,11 +361,16 @@ function buildDots(p: Params, registry: Record<string, ShapeDef>): { dots: Dot[]
     pairsB = B.map((q, i) => ({ q, i, a: Math.atan2(q[1] - cb[1], q[0] - cb[0]) }))
       .sort((u, v) => (u as { a: number }).a - (v as { a: number }).a)
   }
-  const rnd = mulberry(p.seed * 7919 + 13)
-  const dots = pairsA.map((ea, k) => ({
-    a: ea.q, b: pairsB[k].q, seed: Math.floor(rnd() * 1e9),
-    accentA: false, accentB: false, brushA: 0 as const, brushB: 0 as const,
-  }))
+  // Seed aus den Positionen: deckungsgleiche Duplikate fliegen identisch
+  // und liegen dadurch immer exakt übereinander (unsichtbar statt doppelt).
+  const dots = pairsA.map((ea, k) => {
+    const q1 = ea.q; const q2 = pairsB[k].q
+    const h = Math.abs(Math.round(q1[0] * 99730 + q1[1] * 88871 + q2[0] * 77410 + q2[1] * 65530 + p.seed * 101))
+    return {
+      a: q1, b: q2, seed: h,
+      accentA: false, accentB: false, brushA: 0 as const, brushB: 0 as const,
+    }
+  })
   return { dots, nA, nB }
 }
 
@@ -521,7 +573,7 @@ export default function DotsPage() {
     setCounts({ nA, nB })
   }, [params.shapeA, params.shapeB, params.anzahl, params.seed,
       params.verteilung, params.abstandPx, params.format,
-      params.raster, params.gridSize,
+      params.raster, params.gridSize, params.ensemble,
       params.colorsA.amount, params.colorsA.pattern, params.colorsB.amount, params.colorsB.pattern,
       customShapes])
 
@@ -849,12 +901,21 @@ export default function DotsPage() {
         {params.raster && (
           <>
             <label className="dots-field">
+              <span className="dots-label">Ensemble: {params.ensemble} Dots — bleibt in JEDER Form gleich</span>
+              <div className="dots-numrow">
+                <input type="range" min={4} max={64} step={1} value={params.ensemble}
+                  onChange={(e) => set('ensemble', parseInt(e.target.value))} />
+                <input className="dots-num" type="number" min={1} max={128} value={params.ensemble}
+                  onChange={(e) => set('ensemble', Math.max(1, Math.min(128, parseInt(e.target.value) || 1)))} />
+              </div>
+            </label>
+            <label className="dots-field">
               <span className="dots-label">Füllung: {(params.fuellung * 100) | 0} % der Zelle</span>
               <input type="range" min={0.5} max={1.35} step={0.01} value={params.fuellung}
                 onChange={(e) => set('fuellung', parseFloat(e.target.value))} />
               <span className="dots-minmax"><i>luftig</i><i>überlappend</i></span>
             </label>
-            <div className="dots-hint">Jeder Punkt sitzt in einer Zelle — Abstände sind immer gleichmäßig. A: {counts.nA} · B: {counts.nB} Punkte.</div>
+            <div className="dots-hint">Keiner kommt, keiner geht: hat eine Form weniger Plätze, teilen sich Dots exakt deckungsgleich einen Platz — und trennen sich erst wieder im Flug.</div>
             <button className="dots-btn" onClick={() => {
               const def = registry[params.shapeB]
               const pts = def ? rasterize(def, params.gridSize) : []
@@ -925,7 +986,7 @@ export default function DotsPage() {
             }}>✓ Als Form speichern</button>
             <button className="dots-btn" onClick={() => setEditing([])}>Leeren</button>
             <button className="dots-btn" onClick={() => { setEditing(null); setPlaying(true) }}>✕ Abbrechen</button>
-            <span className="dots-hint">Zellen anklicken oder ziehen — {editing.length} belegt · wird Form {activeSlot}</span>
+            <span className="dots-hint">Zellen anklicken oder ziehen — {editing.length} belegt (Ziel: {params.ensemble}) · wird Form {activeSlot}</span>
           </div>
         ) : (
         <div className="dots-transport">

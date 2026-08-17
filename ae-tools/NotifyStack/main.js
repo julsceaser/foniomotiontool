@@ -486,6 +486,13 @@ document.getElementById('btnNew').addEventListener('click', function () {
   });
 });
 
+document.getElementById('btnClear').addEventListener('click', function () {
+  say('loese Rig …');
+  evalES('nsClear()', function (r) {
+    if (r.indexOf('OK') === 0) say(r.substring(2), 'ok'); else say(r, 'err');
+  });
+});
+
 document.getElementById('btnApply').addEventListener('click', function () {
   say('wird angewendet …');
   evalES('nsApply("' + paramString() + '")', function (r) {

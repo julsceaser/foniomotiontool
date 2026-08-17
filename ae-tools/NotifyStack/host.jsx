@@ -327,6 +327,59 @@ function nsPresetsWrite(encoded) {
   } catch (e) { return 'Fehler: ' + e.toString(); }
 }
 
+
+/**
+ * Rig wieder loesen: Expressions weg, Zusatzregler weg, Namenspraefix weg.
+ * Ohne Auswahl gilt es fuer alle Karten der Komposition, dann faellt auch
+ * das Steuer-Null weg. Die Layer selbst bleiben unangetastet.
+ */
+function nsClear() {
+  var comp = nsComp();
+  if (!comp) return 'Keine Komposition offen';
+
+  var ziele = [], i, L;
+  var sel = comp.selectedLayers;
+  for (i = 0; i < sel.length; i++) {
+    if (sel[i].name.indexOf(NS_PREFIX) === 0) ziele.push(sel[i]);
+  }
+  var alle = ziele.length === 0;
+  if (alle) {
+    for (i = 1; i <= comp.numLayers; i++) {
+      L = comp.layer(i);
+      if (L.name.indexOf(NS_PREFIX) === 0) ziele.push(L);
+    }
+  }
+  if (!ziele.length) return 'Keine verrigten Karten gefunden';
+
+  app.beginUndoGroup('Notify Stack — Rig loesen');
+  var n = 0;
+  try {
+    for (i = 0; i < ziele.length; i++) {
+      L = ziele[i];
+      var t = L.property('ADBE Transform Group');
+      var namen = ['ADBE Position', 'ADBE Position_1', 'ADBE Scale', 'ADBE Opacity'];
+      for (var k = 0; k < namen.length; k++) {
+        try {
+          var pr = t.property(namen[k]);
+          if (pr && pr.expressionEnabled) pr.expression = '';
+        } catch (e) {}
+      }
+      try { if (L.effect('Karte Hoehe')) L.effect('Karte Hoehe').remove(); } catch (e) {}
+      L.name = L.name.substring(NS_PREFIX.length);
+      n++;
+    }
+    if (alle) {
+      var ctrl = nsFind(comp, NS_CTRL);
+      if (ctrl) ctrl.remove();
+    }
+  } catch (e) {
+    app.endUndoGroup();
+    return 'Fehler: ' + e.toString();
+  }
+  app.endUndoGroup();
+  return 'OK' + n + (alle ? ' Karten geloest, Null entfernt' : ' Karten geloest');
+}
+
 /** Kurzinfo fuer die Statuszeile. */
 function nsInfo() {
   var comp = nsComp();
